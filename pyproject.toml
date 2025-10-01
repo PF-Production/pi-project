@@ -1,10 +1,17 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "pi-project"
 version = "0.1.0"
-description = "Add your description here"
+description = "This is a playback project"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "pydub>=0.25.1",
     "pygame>=2.6.1",
 ]
+
+[tool.setuptools]
+py-modules = ["mp3_player", "eq_mp3", "main"]
