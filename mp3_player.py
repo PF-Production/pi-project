@@ -2,9 +2,16 @@ import pygame
 import threading
 import time
 from datetime import datetime
+import os
+
 
 class MP3Player:
-    def __init__(self, mp3_path, second_path=None, volume=0.5):
+    def __init__(self, mp3_path, second_path=None, volume=0.5, audio_device=None):
+        # Set audio device if specified (e.g., "hw:1,0")
+        if audio_device:
+            os.environ["SDL_AUDIODRIVER"] = "alsa"
+            os.environ["AUDIODEV"] = audio_device
+
         pygame.mixer.init()
         self.mp3_path = mp3_path
         self.second_path = second_path
@@ -38,6 +45,7 @@ class MP3Player:
         """
         start_time and end_time should be datetime.time objects
         """
+
         def _run():
             while True:
                 now = datetime.now().time()
@@ -48,6 +56,7 @@ class MP3Player:
                     if self._playing:
                         self.stop()
                 time.sleep(1)
+
         self._thread = threading.Thread(target=_run, daemon=True)
         self._thread.start()
 
