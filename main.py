@@ -15,10 +15,10 @@ def main():
         "--device2", help="ALSA hw device for second track (e.g. hw:2,0)", default=None
     )
     parser.add_argument(
-        "--volume", type=float, help="Main track volume 0.0-1.0", default=0.1
+        "--volume", type=float, help="Main track volume 0.0-1.0", default=0.5
     )
     parser.add_argument(
-        "--second-volume", type=float, help="Second track volume 0.0-1.0", default=0.1
+        "--second-volume", type=float, help="Second track volume 0.0-1.0", default=0.5
     )
     args = parser.parse_args()
 
@@ -38,10 +38,16 @@ def main():
             audio_device = (env1, env2)
         elif env1:
             audio_device = env1
+    # If nothing provided, default to cards 2 and 3 (hw:2,0 and hw:3,0)
+    if audio_device is None:
+        audio_device = (
+            os.environ.get("DEFAULT_DEVICE1", "hw:2,0"),
+            os.environ.get("DEFAULT_DEVICE2", "hw:3,0"),
+        )
 
     player = MP3Player(
         "./files/karla bidi - instruments stereo.wav",
-        second_path="./files/Karla Bidi - Mono Vox.wav",
+        second_path="./files/karla bidi - mono vox.wav",
         volume=args.volume,
         audio_device=audio_device,
         second_volume=args.second_volume,

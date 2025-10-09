@@ -100,6 +100,16 @@ player.play_loop()
 python3 main.py
 ```
 
+You can pass ALSA devices via CLI arguments. Examples:
+
+```bash
+
+# if you use the 'uv' runner
+uv run main.py --device1 hw:1,0 --device2 hw:2,0
+```
+
+If you omit `--device1`/`--device2` the script will fall back to the default audio path (pygame/local default) or to `AUDIO_DEVICE_1`/`AUDIO_DEVICE_2` environment variables if set.
+
 Notes for Pi:
 - The code uses `aplay` subprocess loops to send each file to the specified ALSA device. This avoids initializing SDL/pygame on headless setups and prevents one process from grabbing a hardware device.
 - Per-device software volume is not managed by the Python code when using `aplay`. Use `amixer` or system mixer controls to adjust levels.
