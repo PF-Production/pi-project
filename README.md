@@ -151,6 +151,41 @@ Notes:
 - `pygame` (SDL backend) provides per-sound and per-channel software volume but does not reliably allow routing different streams to different physical hardware devices across platforms.
 - For local macOS testing you can set independent software volumes for each track (see runtime examples above), but to route separate streams to distinct hardware outputs you need OS-level routing (ALSA device selection, PulseAudio, JACK) or the ALSA `aplay -D` approach used on the Pi.
 
+## Autostart with systemd (daily start/stop)
+
+This repo contains example systemd unit and timer templates under `systemd/` to start the player at 08:00 and stop it at 17:00 daily. They are templates — edit paths, usernames and times as needed before installing on your Pi.
+
+Installation (on the Pi):
+
+```bash
+# copy unit/timer files to systemd
+sudo cp systemd/pi-mp3.service /etc/systemd/system/
+sudo cp systemd/pi-mp3-start.service /etc/systemd/system/
+sudo cp systemd/pi-mp3-start.timer /etc/systemd/system/
+sudo cp systemd/pi-mp3-stop.service /etc/systemd/system/
+sudo cp systemd/pi-mp3-stop.timer /etc/systemd/system/
+
+# reload systemd and enable timers
+sudo systemctl daemon-reload
+sudo systemctl enable --now pi-mp3-start.timer
+sudo systemctl enable --now pi-mp3-stop.timer
+
+# (optional) enable the service to allow manual start/stop
+sudo systemctl enable pi-mp3.service
+```
+
+Check timers and logs:
+
+```bash
+systemctl list-timers --all | grep pi-mp3
+journalctl -u pi-mp3.service -f
+```
+
+Notes:
+- Edit `systemd/pi-mp3.service` to set `WorkingDirectory` and `ExecStart` to the correct paths on your Pi.
+- You can pass ALSA devices as environment variables in the unit (see commented `Environment=` lines) or include `--device1`/`--device2` flags in the `ExecStart` value.
+- Timers use `OnCalendar` and are persistent (will catch up missed runs if the Pi was off).
+
 
 ## Examples
 

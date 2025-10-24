@@ -1,0 +1,6 @@
+[Unit]
+Description=Start pi-mp3.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl start pi-mp3.service
