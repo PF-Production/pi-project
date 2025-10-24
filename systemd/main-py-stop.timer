@@ -1,9 +1,0 @@
-[Unit]
-Description=Stop main-py.service daily
-
-[Timer]
-OnCalendar=*-*-* 14:50:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target

@@ -1,6 +1,0 @@
-[Unit]
-Description=Stop pi-mp3.service
-
-[Service]
-Type=oneshot
-ExecStart=/bin/systemctl stop pi-mp3.service
