@@ -1,10 +1,9 @@
-
 from pydub import AudioSegment
 from pydub.effects import low_pass_filter, high_pass_filter
 
 
 # Load the original WAV file
-input_path = "./karla bidi - instruments stereo.wav"
+input_path = "./Stereo Drums.wav"
 audio = AudioSegment.from_wav(input_path)
 
 """

@@ -24,9 +24,7 @@ class MP3Player:
         #  - a tuple/list of two strings (device_main, device_second) -> play each track to its device
         self._subprocs = []
 
-        self.mp3_path = mp3_path.replace(
-            "kb.mp3.wav", "karla bidi - instruments stereo.wav"
-        )
+        self.mp3_path = mp3_path.replace("kb.mp3.wav", "Stereo Drums.wav")
         self.second_path = second_path
         self.volume = volume
         self.second_volume = second_volume

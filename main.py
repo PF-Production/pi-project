@@ -46,8 +46,8 @@ def main():
         )
 
     player = MP3Player(
-        "./files/karla bidi - instruments stereo.wav",
-        second_path="./files/karla bidi - mono vox.wav",
+        "./files/Stereo Drums.wav",
+        second_path="./files/Stereo Drums.wav",
         volume=args.volume,
         audio_device=audio_device,
         second_volume=args.second_volume,
