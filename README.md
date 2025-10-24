@@ -159,30 +159,31 @@ Installation (on the Pi):
 
 ```bash
 # copy unit/timer files to systemd
-sudo cp systemd/pi-mp3.service /etc/systemd/system/
-sudo cp systemd/pi-mp3-start.service /etc/systemd/system/
-sudo cp systemd/pi-mp3-start.timer /etc/systemd/system/
-sudo cp systemd/pi-mp3-stop.service /etc/systemd/system/
-sudo cp systemd/pi-mp3-stop.timer /etc/systemd/system/
+
+sudo cp systemd/main-py.service /etc/systemd/system/
+sudo cp systemd/main-py-start.service /etc/systemd/system/
+sudo cp systemd/main-py-start.timer /etc/systemd/system/
+sudo cp systemd/main-py-stop.service /etc/systemd/system/
+sudo cp systemd/main-py-stop.timer /etc/systemd/system/
 
 # reload systemd and enable timers
 sudo systemctl daemon-reload
-sudo systemctl enable --now pi-mp3-start.timer
-sudo systemctl enable --now pi-mp3-stop.timer
+sudo systemctl enable --now main-py-start.timer
+sudo systemctl enable --now main-py-stop.timer
 
 # (optional) enable the service to allow manual start/stop
-sudo systemctl enable pi-mp3.service
+sudo systemctl enable main-py.service
 ```
 
 Check timers and logs:
 
 ```bash
-systemctl list-timers --all | grep pi-mp3
-journalctl -u pi-mp3.service -f
+systemctl list-timers --all | grep main-py
+journalctl -u main-py.service -f
 ```
 
 Notes:
-- Edit `systemd/pi-mp3.service` to set `WorkingDirectory` and `ExecStart` to the correct paths on your Pi.
+ - Edit `systemd/main-py.service` to set `WorkingDirectory` and `ExecStart` to the correct paths on your Pi.
 - You can pass ALSA devices as environment variables in the unit (see commented `Environment=` lines) or include `--device1`/`--device2` flags in the `ExecStart` value.
 - Timers use `OnCalendar` and are persistent (will catch up missed runs if the Pi was off).
 

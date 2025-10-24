@@ -1,0 +1,6 @@
+[Unit]
+Description=Stop main-py.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl stop main-py.service

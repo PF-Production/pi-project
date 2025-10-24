@@ -1,0 +1,6 @@
+[Unit]
+Description=Start main-py.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl start main-py.service
