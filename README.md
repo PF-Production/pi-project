@@ -66,7 +66,7 @@ python3 main.py
 
 ```py
 from mp3_player import MP3Player
-player = MP3Player("./files/Stereo Drums.wav", second_path="./files/Stereo Drums.wav", volume=0.1, audio_device=None)
+player = MP3Player("./files/Stereo Drums.wav", second_path="./files/Vox L - Synth R.wav", volume=0.1, audio_device=None)
 player.play_loop()
 ```
 
@@ -90,7 +90,7 @@ aplay -l
 
 ```py
 from mp3_player import MP3Player
-player = MP3Player("./files/Stereo Drums.wav", second_path="./files/Stereo Drums.wav", audio_device=("hw:1,0","hw:2,0"))
+player = MP3Player("./files/Stereo Drums.wav", second_path="./files/Vox L - Synth R.wav", audio_device=("hw:1,0","hw:2,0"))
 player.play_loop()
 ```
 

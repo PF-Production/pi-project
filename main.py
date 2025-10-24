@@ -47,7 +47,7 @@ def main():
 
     player = MP3Player(
         "./files/Stereo Drums.wav",
-        second_path="./files/Stereo Drums.wav",
+        second_path="./files/Vox L - Synth R.wav",
         volume=args.volume,
         audio_device=audio_device,
         second_volume=args.second_volume,
