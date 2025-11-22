@@ -280,6 +280,13 @@ def main():
     start_time, start_time_provided = get_time_input("  Start time (HH:MM):", current_start_time)
     end_time, end_time_provided = get_time_input("  Stop time  (HH:MM):", current_end_time)
 
+    # Remote Control configuration
+    print_header("REMOTE CONTROL")
+    print("\nConfigure a port for remote control (0 to disable).")
+    current_remote_port = get_env_value("REMOTE_PORT", "0")
+    remote_port_input = input(f"  Remote Control Port [{current_remote_port}]: ").strip()
+    remote_port = remote_port_input if remote_port_input else current_remote_port
+
     # Summary and confirmation
     print_header("CONFIGURATION SUMMARY")
 
@@ -296,6 +303,9 @@ def main():
     print("\nSchedule:")
     print(f"  Start time:           {start_time or '(not set)'}")
     print(f"  Stop time:            {end_time or '(not set)'}")
+
+    print("\nRemote Control:")
+    print(f"  Port:                 {remote_port}")
 
     confirm = input("\nSave this configuration to .env.local? (y/n): ").strip().lower()
 
@@ -319,6 +329,10 @@ def main():
             config["PLAY_START_TIME"] = start_time
         if end_time_provided and end_time:
             config["PLAY_END_TIME"] = end_time
+
+        # Always save remote port if it's set
+        if remote_port:
+            config["REMOTE_PORT"] = remote_port
 
         save_env_file(config)
         print("\n✓ Configuration saved to .env.local")

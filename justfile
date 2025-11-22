@@ -60,7 +60,7 @@ check:
     @echo "✓ All checks passed"
 
 # Show system info and audio devices
-info:
+info: 
     uv run scripts/system_info.py
 
 # Configure audio devices and volume settings
@@ -74,3 +74,50 @@ play:
 # Start immediately, ignoring schedule
 play-now:
     uv run main.py --ignore-schedule
+
+# Connect to the running player remotely
+remote host="localhost":
+    uv run scripts/remote.py {{host}}
+
+# Enable SSH on Raspberry Pi
+enable-ssh:
+    @if command -v systemctl &> /dev/null; then \
+        echo "Enabling SSH service..."; \
+        sudo systemctl enable ssh; \
+        sudo systemctl start ssh; \
+        echo "✓ SSH enabled"; \
+    else \
+        echo "Error: systemctl not found. Is this a Raspberry Pi?"; \
+    fi
+
+# Install systemd service to run on boot
+install-service:
+    @echo "Installing systemd service..."
+    @if [ -f systemd/pi-mp3.service ]; then \
+        echo "Generating service file with current paths..."; \
+        sed "s|User=pi|User=$(whoami)|g" systemd/pi-mp3.service > pi-mp3.service.tmp; \
+        sed -i "s|WorkingDirectory=/home/pi/pi-project|WorkingDirectory=$(pwd)|g" pi-mp3.service.tmp; \
+        sed -i "s|ExecStart=/usr/bin/env uv|ExecStart=$(which uv)|g" pi-mp3.service.tmp; \
+        echo "Installing to /etc/systemd/system/pi-mp3.service..."; \
+        sudo mv pi-mp3.service.tmp /etc/systemd/system/pi-mp3.service; \
+        sudo systemctl daemon-reload; \
+        sudo systemctl enable pi-mp3.service; \
+        sudo systemctl start pi-mp3.service; \
+        echo "✓ Service installed and started"; \
+        echo "Check status with: systemctl status pi-mp3.service"; \
+    else \
+        echo "Error: systemd/pi-mp3.service not found"; \
+    fi
+
+# Show network information (IP address)
+ip:
+    @echo "Network Interfaces:"
+    @if command -v ip &> /dev/null; then \
+        ip -4 addr show | grep -v "127.0.0.1" | grep inet; \
+    else \
+        ifconfig | grep "inet " | grep -v 127.0.0.1; \
+    fi
+    @echo "\nTo connect via SSH:"
+    @echo "  ssh $USER@$(hostname).local"
+    @echo "  or"
+    @echo "  ssh $USER@<IP_ADDRESS>"
