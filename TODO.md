@@ -11,8 +11,8 @@
 - [x] Test if start times for script can be set using system clock
 - [x] Add --force flag to bypass time checks for testing purposes
 - [x] Test devices locally first to ensure they all playback correctly when powered on.
+- [x] Review remote commands to control playback and volume without needing SSH access
 
 - [ ] Figure out how to remote into device via WiFi for onsite debugging and EQ
 - [ ] Onsite controls should only be to force playback, adjust volume or change EQ settings.
 - [ ] Figure out how to do EQ and change it remotely
-- [ ] Review remote commands to control playback and volume without needing SSH access

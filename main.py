@@ -302,7 +302,7 @@ def main():
     )
     args = parser.parse_args()
 
-    print("Hello from pi-project!")
+    print("Hello from Karla Bidi playback!")
 
     audio_device = _get_audio_device(args)
     volumes = _get_volumes(args)

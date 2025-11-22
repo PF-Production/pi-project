@@ -142,7 +142,8 @@ class MP3Player:
                 ok = self._set_alsa_volume_for_device(main_device, self.volume)
                 if not ok:
                     print(
-                        f"Warning: could not set ALSA mixer for device {main_device}. Try running with sudo or configure sudoers."
+                        f"Warning: could not set ALSA mixer for device {main_device}. "
+                        "Try running with sudo or configure sudoers."
                     )
 
     def set_main_channel_volumes(self, left_volume, right_volume):
@@ -165,7 +166,8 @@ class MP3Player:
                     ok = self._set_alsa_volume_for_device(main_device, (self.main_left_volume, self.main_right_volume))
                     if not ok:
                         print(
-                            f"Warning: could not set ALSA mixer for device {main_device}. Try running with sudo or configure sudoers."
+                            f"Warning: could not set ALSA mixer for device {main_device}. "
+                            "Try running with sudo or configure sudoers."
                         )
             except Exception as e:
                 print(f"Error setting ALSA volume for main channels: {e}")
@@ -194,7 +196,8 @@ class MP3Player:
                     )
                     if not ok:
                         print(
-                            f"Warning: could not set ALSA mixer for device {second_device}. Try running with sudo or configure sudoers."
+                            f"Warning: could not set ALSA mixer for device {second_device}. "
+                            "Try running with sudo or configure sudoers."
                         )
             except Exception as e:
                 print(f"Error setting ALSA volume for second channels: {e}")
@@ -218,7 +221,8 @@ class MP3Player:
                 ok = self._set_alsa_volume_for_device(second_device, self.second_volume)
                 if not ok:
                     print(
-                        f"Warning: could not set ALSA mixer for device {second_device}. Try running with sudo or configure sudoers."
+                        f"Warning: could not set ALSA mixer for device {second_device}. "
+                        "Try running with sudo or configure sudoers."
                     )
 
     def _start_subprocess_playback(self):
