@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Interactive configuration tool to set up audio devices and volume levels.
+Interactive configuration tool to set up audio devices, volumes, and playback schedule.
 Saves configuration to .env.local
 """
 
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 
@@ -121,6 +122,27 @@ def get_volume_input(prompt, default=0.5):
             print("  ✗ Invalid input. Please enter a number between 0.0 and 1.0")
 
 
+def get_time_input(prompt, default=None):
+    """Get HH:MM (24h) time input from user.
+
+    Returns tuple (value, was_provided). Value is a string like "08:30" or None.
+    """
+
+    def _validate(value):
+        datetime.strptime(value, "%H:%M")
+
+    while True:
+        default_display = default if default is not None else "HH:MM"
+        user_input = input(f"{prompt} [{default_display}]: ").strip()
+        if not user_input:
+            return (default, False)
+        try:
+            _validate(user_input)
+            return (user_input, True)
+        except ValueError:
+            print("  ✗ Time must be in 24-hour HH:MM format (e.g., 08:00 or 18:30)")
+
+
 def select_device(devices, device_name, current_device=None):
     """Prompt user to select a device from available options."""
     if not devices:
@@ -177,6 +199,8 @@ def save_env_file(config):
     lines = content.split("\n")
     new_lines = []
 
+    updated_keys = set()
+
     for line in lines:
         # Check if this line is a variable we're updating
         updated = False
@@ -184,11 +208,17 @@ def save_env_file(config):
             if line.startswith(f"{key}="):
                 new_lines.append(f"{key}={value}")
                 updated = True
+                updated_keys.add(key)
                 break
 
         if not updated:
             # Keep the line as-is (preserves comments and empty lines)
             new_lines.append(line)
+
+    # Append any new keys that were not found in the original file
+    for key, value in config.items():
+        if key not in updated_keys:
+            new_lines.append(f"{key}={value}")
 
     # Write back to .env.local
     with open(env_file, "w") as f:
@@ -222,6 +252,8 @@ def main():
     current_centre_right = float(get_env_value("CENTRE_RIGHT_VOLUME", "0.5"))
     current_stereo_left = float(get_env_value("STEREO_LEFT_VOLUME", "0.5"))
     current_stereo_right = float(get_env_value("STEREO_RIGHT_VOLUME", "0.5"))
+    current_start_time = get_env_value("PLAY_START_TIME")
+    current_end_time = get_env_value("PLAY_END_TIME")
 
     # Device selection
     print_header("DEVICE SELECTION")
@@ -242,6 +274,12 @@ def main():
     stereo_left, stereo_left_provided = get_volume_input("  Left volume (0.0-1.0):", current_stereo_left)
     stereo_right, stereo_right_provided = get_volume_input("  Right volume (0.0-1.0):", current_stereo_right)
 
+    # Schedule configuration
+    print_header("PLAYBACK SCHEDULE")
+    print("\nTimes use the Raspberry Pi's local clock in 24-hour format.")
+    start_time, start_time_provided = get_time_input("  Start time (HH:MM):", current_start_time)
+    end_time, end_time_provided = get_time_input("  Stop time  (HH:MM):", current_end_time)
+
     # Summary and confirmation
     print_header("CONFIGURATION SUMMARY")
 
@@ -254,6 +292,10 @@ def main():
     print(f"  Centre Right (Sub):   {centre_right:.1f}")
     print(f"  Stereo Left:          {stereo_left:.1f}")
     print(f"  Stereo Right:         {stereo_right:.1f}")
+
+    print("\nSchedule:")
+    print(f"  Start time:           {start_time or '(not set)'}")
+    print(f"  Stop time:            {end_time or '(not set)'}")
 
     confirm = input("\nSave this configuration to .env.local? (y/n): ").strip().lower()
 
@@ -273,6 +315,10 @@ def main():
             config["STEREO_LEFT_VOLUME"] = str(stereo_left)
         if stereo_right_provided:
             config["STEREO_RIGHT_VOLUME"] = str(stereo_right)
+        if start_time_provided and start_time:
+            config["PLAY_START_TIME"] = start_time
+        if end_time_provided and end_time:
+            config["PLAY_END_TIME"] = end_time
 
         save_env_file(config)
         print("\n✓ Configuration saved to .env.local")

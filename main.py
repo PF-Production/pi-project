@@ -1,6 +1,7 @@
 import argparse
 import os
 import time
+from datetime import datetime
 
 from dotenv import load_dotenv
 
@@ -10,12 +11,27 @@ from mp3_player import MP3Player
 load_dotenv(".env.local")
 
 
+def _parse_schedule_time(label, value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value.strip(), "%H:%M").time()
+    except ValueError:
+        print(f"Warning: {label} has invalid format '{value}'. Expected HH:MM.")
+        return None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run MP3Player with optional device args")
     parser.add_argument("--device1", help="ALSA hw device for centre track (e.g. hw:1,0)", default=None)
     parser.add_argument("--device2", help="ALSA hw device for stereo track (e.g. hw:2,0)", default=None)
     parser.add_argument("--volume", type=float, help="Main track volume 0.0-1.0", default=None)
     parser.add_argument("--second-volume", type=float, help="Second track volume 0.0-1.0", default=None)
+    parser.add_argument(
+        "--ignore-schedule",
+        action="store_true",
+        help="Start playback immediately, ignoring PLAY_START_TIME/PLAY_END_TIME",
+    )
     args = parser.parse_args()
 
     print("Hello from pi-project!")
@@ -59,7 +75,21 @@ def main():
         second_right_volume=stereo_right,
     )
 
-    player.play_loop()
+    start_time = _parse_schedule_time("PLAY_START_TIME", os.getenv("PLAY_START_TIME"))
+    end_time = _parse_schedule_time("PLAY_END_TIME", os.getenv("PLAY_END_TIME"))
+
+    if not args.ignore_schedule and start_time and end_time:
+        print(
+            "Playback scheduled between "
+            f"{start_time.strftime('%H:%M')} and {end_time.strftime('%H:%M')} (device local time)."
+        )
+        player.play_between_times(start_time, end_time)
+    else:
+        if not args.ignore_schedule and (start_time or end_time):
+            print("Warning: schedule requires both PLAY_START_TIME and PLAY_END_TIME. Starting immediately.")
+        elif args.ignore_schedule and (start_time or end_time):
+            print("Ignoring configured schedule and starting playback now.")
+        player.play_loop()
 
     # Keep the script alive
     try:

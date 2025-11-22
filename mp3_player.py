@@ -260,19 +260,25 @@ class MP3Player:
             self._playing = False
 
     def play_between_times(self, start_time, end_time):
-        """
-        start_time and end_time should be datetime.time objects
-        """
+        """Run playback only between start_time and end_time (local time objects)."""
+
+        def _within_window(now):
+            if start_time == end_time:
+                # Treat matching times as "always on"
+                return True
+            if start_time < end_time:
+                return start_time <= now < end_time
+            # Window wraps past midnight
+            return now >= start_time or now < end_time
 
         def _run():
             while True:
                 now = datetime.now().time()
-                if start_time <= now <= end_time:
+                if _within_window(now):
                     if not self._playing:
                         self.play_loop()
-                else:
-                    if self._playing:
-                        self.stop()
+                elif self._playing:
+                    self.stop()
                 time.sleep(1)
 
         self._thread = threading.Thread(target=_run, daemon=True)

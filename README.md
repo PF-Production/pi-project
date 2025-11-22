@@ -34,7 +34,7 @@ The `just setup` command will:
 just info
 ```
 
-This shows available audio devices, current configuration, and audio file status.
+This shows available audio devices, the device's current local time, existing configuration, and audio file status.
 
 ### 3. Configure Audio Devices
 
@@ -45,8 +45,9 @@ just config
 This interactive wizard lets you:
 
 - Select which audio device to use for each output
-- Set volume levels for centre channel (left/right)
-- Set volume levels for stereo channel (left/right)
+- Set volume levels for centre sound file `(left - i.e. centre) / right - i.e. sub)`
+- Set volume levels for stereo sound file `(left/right)`
+- Define daily start/stop times for playback using the Pi's internal clock
 - Save configuration to `.env.local`
 
 ### 4. Start Playing
@@ -65,7 +66,7 @@ The project uses [just](https://github.com/casey/just) for common tasks:
 just setup     # Install dependencies and system packages
 just info      # Show audio devices and current configuration
 just config    # Interactive setup wizard for devices and volumes
-just play      # Run the audio player
+just play      # Run the audio player. Run `just play:now` to ignore schedule
 just download  # Download audio files specified in .env.local
 just check     # Check code formatting and linting with ruff
 just clean     # Remove build artifacts and cache files
@@ -110,9 +111,19 @@ CENTRE_LEFT_VOLUME=0.5          # Centre channel left volume (0.0-1.0)
 CENTRE_RIGHT_VOLUME=0.5         # Centre channel right volume (0.0-1.0)
 STEREO_LEFT_VOLUME=0.5          # Stereo channel left volume (0.0-1.0)
 STEREO_RIGHT_VOLUME=0.5         # Stereo channel right volume (0.0-1.0)
+PLAY_START_TIME=08:00           # Optional local start time (HH:MM, 24h)
+PLAY_END_TIME=18:00             # Optional local stop time  (HH:MM, 24h)
 ```
 
 Use `just configure` to set these interactively, or edit `.env.local` directly.
+
+### Playback Schedule
+
+- Scheduling uses the Raspberry Pi's local clock. Run `just info` to confirm the reported time after the device boots.
+- Set both `PLAY_START_TIME` and `PLAY_END_TIME` (HH:MM, 24-hour) to delay playback until the start time is reached and stop it automatically at the end time.
+- Windows that wrap past midnight (e.g., `21:00` to `05:00`) are supported. If the times match, playback runs continuously.
+- Leaving either value blank disables scheduling so the player starts immediately after boot.
+- Use `just play:now` (or pass `--ignore-schedule`) to force an immediate manual run without waiting for the next start window.
 
 ### Command-Line Arguments
 

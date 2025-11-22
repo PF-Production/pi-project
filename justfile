@@ -70,3 +70,7 @@ config:
 # Start the audio player
 play:
     uv run main.py
+
+# Start immediately, ignoring schedule
+play-now:
+    uv run main.py --ignore-schedule

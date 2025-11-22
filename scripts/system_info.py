@@ -6,6 +6,7 @@ Display system information including audio devices, sample rates, and current co
 import os
 import platform
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -101,6 +102,8 @@ def get_current_config():
             "centre_right_volume": os.getenv("CENTRE_RIGHT_VOLUME", "0.5"),
             "stereo_left_volume": os.getenv("STEREO_LEFT_VOLUME", "0.5"),
             "stereo_right_volume": os.getenv("STEREO_RIGHT_VOLUME", "0.5"),
+            "start_time": os.getenv("PLAY_START_TIME"),
+            "end_time": os.getenv("PLAY_END_TIME"),
         }
     return config
 
@@ -119,6 +122,8 @@ def main():
     print(f"\nOS: {platform.system()} {platform.release()}")
     print(f"Python: {platform.python_version()}")
     print(f"Architecture: {platform.machine()}")
+    now = datetime.now().astimezone()
+    print(f"Current device time: {now.strftime('%Y-%m-%d %H:%M:%S %Z (UTC%z)')}")
 
     # Audio devices
     print_audio_devices_section()
@@ -138,6 +143,10 @@ def main():
         print(f"  Centre Right (Sub):   {config.get('centre_right_volume', '(not set)')}")
         print(f"  Stereo Left:          {config.get('stereo_left_volume', '(not set)')}")
         print(f"  Stereo Right:         {config.get('stereo_right_volume', '(not set)')}")
+
+        print("\nSchedule:")
+        print(f"  Start time:           {config.get('start_time') or '(not set)'}")
+        print(f"  Stop time:            {config.get('end_time') or '(not set)'}")
     else:
         print("\n⊘ No configuration found in .env.local")
         print("   Run 'just configure' to set up audio devices and volumes")
