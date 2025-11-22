@@ -11,7 +11,16 @@ requires-python = ">=3.11"
 dependencies = [
     "pydub>=0.25.1",
     "pygame>=2.6.1",
+    "rust-just>=1.43.1",
+    "python-dotenv>=1.0.0",
 ]
 
 [tool.setuptools]
 py-modules = ["mp3_player", "eq_mp3", "main"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["C", "E", "F", "W"]

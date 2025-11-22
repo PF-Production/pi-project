@@ -1,12 +1,12 @@
-import pygame
+import os
+import platform
+import shutil
+import subprocess
 import threading
 import time
 from datetime import datetime
 
-import os
-import platform
-import subprocess
-import shutil
+import pygame
 
 
 class MP3Player:
@@ -17,17 +17,28 @@ class MP3Player:
         volume=0.5,
         audio_device=None,
         second_volume=0.5,
+        main_left_volume=None,
+        main_right_volume=None,
+        second_left_volume=None,
+        second_right_volume=None,
     ):
         # audio_device may be:
         #  - None -> use default OS audio (pygame)
-        #  - a single string (e.g. "hw:1,0") -> use that device for the main track
-        #  - a tuple/list of two strings (device_main, device_second) -> play each track to its device
+        #  - a single string (e.g. "hw:1,0") -> use that device for the centre track
+        #  - a tuple/list of two strings (centre_device, stereo_device) -> play each track to its device
         self._subprocs = []
 
-        self.mp3_path = mp3_path.replace("kb.mp3.wav", "Stereo Drums.wav")
+        self.mp3_path = mp3_path
         self.second_path = second_path
         self.volume = volume
         self.second_volume = second_volume
+
+        # Per-channel volume settings (defaults to overall volume if not specified)
+        self.main_left_volume = main_left_volume if main_left_volume is not None else volume
+        self.main_right_volume = main_right_volume if main_right_volume is not None else volume
+        self.second_left_volume = second_left_volume if second_left_volume is not None else second_volume
+        self.second_right_volume = second_right_volume if second_right_volume is not None else second_volume
+
         # keep reference to pygame channel for second track (dev/testing)
         self._pygame_channel2 = None
         self._playing = False
@@ -45,9 +56,7 @@ class MP3Player:
 
         # Use subprocess/ALSA loop playback on Linux when devices are provided and 'aplay' exists.
         use_alsa_subprocess = (
-            platform.system() == "Linux"
-            and self.devices is not None
-            and shutil.which("aplay") is not None
+            platform.system() == "Linux" and self.devices is not None and shutil.which("aplay") is not None
         )
 
         if use_alsa_subprocess:
@@ -124,6 +133,28 @@ class MP3Player:
                 if not ok:
                     print(f"Warning: could not set ALSA mixer for device {main_device}")
 
+    def set_main_channel_volumes(self, left_volume, right_volume):
+        """Set left and right channel volumes for the main track independently."""
+        self.main_left_volume = max(0.0, min(1.0, left_volume))
+        self.main_right_volume = max(0.0, min(1.0, right_volume))
+        # Update overall volume to average
+        self.volume = (self.main_left_volume + self.main_right_volume) / 2
+        if not self._use_subprocess:
+            pygame.mixer.music.set_volume(self.volume)
+
+    def set_second_channel_volumes(self, left_volume, right_volume):
+        """Set left and right channel volumes for the second track independently."""
+        self.second_left_volume = max(0.0, min(1.0, left_volume))
+        self.second_right_volume = max(0.0, min(1.0, right_volume))
+        # Update overall volume to average
+        self.second_volume = (self.second_left_volume + self.second_right_volume) / 2
+        if not self._use_subprocess:
+            if self._pygame_channel2:
+                try:
+                    self._pygame_channel2.set_volume(self.second_volume)
+                except Exception:
+                    pass
+
     def set_second_volume(self, volume):
         self.second_volume = max(0.0, min(1.0, volume))
         if not self._use_subprocess:
@@ -140,68 +171,69 @@ class MP3Player:
             if second_device:
                 ok = self._set_alsa_volume_for_device(second_device, self.second_volume)
                 if not ok:
-                    print(
-                        f"Warning: could not set ALSA mixer for device {second_device}"
-                    )
+                    print(f"Warning: could not set ALSA mixer for device {second_device}")
+
+    def _start_subprocess_playback(self):
+        """Start subprocess-based ALSA playback for each device."""
+        self.stop()
+        procs = []
+
+        def start_loop_playback(path, device):
+            if not path or not device:
+                return None
+            # Use a shell loop to re-run aplay so the audio repeats.
+            cmd = f"while true; do aplay -D {device} '{path}'; done"
+            return subprocess.Popen(["/bin/sh", "-c", cmd])
+
+        main_device, second_device = self.devices if isinstance(self.devices, tuple) else (self.devices, None)
+
+        # Start main device playback
+        if isinstance(main_device, str):
+            try:
+                self._set_alsa_volume_for_device(main_device, self.volume)
+            except Exception:
+                pass
+            p1 = start_loop_playback(self.mp3_path, main_device)
+            if p1:
+                procs.append(p1)
+
+        # Start second device playback
+        if self.second_path and isinstance(second_device, str):
+            try:
+                self._set_alsa_volume_for_device(second_device, self.second_volume)
+            except Exception:
+                pass
+            p2 = start_loop_playback(self.second_path, second_device)
+            if p2:
+                procs.append(p2)
+
+        self._subprocs = procs
+        self._playing = len(procs) > 0
+
+    def _start_pygame_playback(self):
+        """Start pygame-based playback for single default output."""
+        pygame.mixer.music.load(self.mp3_path)
+        pygame.mixer.music.play(loops=-1)
+        self._playing = True
+
+        # Play second track if provided (same output)
+        if self.second_path:
+            sound2 = pygame.mixer.Sound(self.second_path)
+            channel2 = pygame.mixer.Channel(1)
+            channel2.set_volume(self.second_volume)
+            channel2.play(sound2, loops=-1)
+            self._pygame_channel2 = channel2
 
     def play_loop(self):
         """
         Cross-platform play:
-        - On Linux with ALSA devices and `aplay` available: spawn subprocess loops which play each file to the specified hw device.
+        - On Linux with ALSA devices and `aplay` available: spawn subprocess loops for each device.
         - Otherwise: use pygame.mixer (single default output) for dev on macOS/Windows.
         """
         if self._use_subprocess:
-            # stop any previous subprocesses
-            self.stop()
-            procs = []
-
-            def start_loop_playback(path, device):
-                if not path or not device:
-                    return None
-                # Use a shell loop to re-run aplay so the audio repeats.
-                cmd = f"while true; do aplay -D {device} '{path}'; done"
-                return subprocess.Popen(["/bin/sh", "-c", cmd])
-
-            main_device, second_device = (
-                self.devices
-                if isinstance(self.devices, tuple)
-                else (self.devices, None)
-            )
-            # If a single device tuple was passed like (dev, None) main_device will be device string
-            # Start main (set initial volume first)
-            if isinstance(main_device, str):
-                # try to set ALSA volume before playback
-                try:
-                    self._set_alsa_volume_for_device(main_device, self.volume)
-                except Exception:
-                    pass
-                p1 = start_loop_playback(self.mp3_path, main_device)
-                if p1:
-                    procs.append(p1)
-            # Start second if provided
-            if self.second_path and isinstance(second_device, str):
-                try:
-                    self._set_alsa_volume_for_device(second_device, self.second_volume)
-                except Exception:
-                    pass
-                p2 = start_loop_playback(self.second_path, second_device)
-                if p2:
-                    procs.append(p2)
-
-            self._subprocs = procs
-            self._playing = len(procs) > 0
+            self._start_subprocess_playback()
         else:
-            # pygame fallback (single output)
-            pygame.mixer.music.load(self.mp3_path)
-            pygame.mixer.music.play(loops=-1)
-            self._playing = True
-            # Play second track if provided (same output)
-            if self.second_path:
-                sound2 = pygame.mixer.Sound(self.second_path)
-                channel2 = pygame.mixer.Channel(1)
-                channel2.set_volume(self.second_volume)
-                channel2.play(sound2, loops=-1)
-                self._pygame_channel2 = channel2
+            self._start_pygame_playback()
 
     def stop(self):
         if self._use_subprocess:
@@ -228,19 +260,25 @@ class MP3Player:
             self._playing = False
 
     def play_between_times(self, start_time, end_time):
-        """
-        start_time and end_time should be datetime.time objects
-        """
+        """Run playback only between start_time and end_time (local time objects)."""
+
+        def _within_window(now):
+            if start_time == end_time:
+                # Treat matching times as "always on"
+                return True
+            if start_time < end_time:
+                return start_time <= now < end_time
+            # Window wraps past midnight
+            return now >= start_time or now < end_time
 
         def _run():
             while True:
                 now = datetime.now().time()
-                if start_time <= now <= end_time:
+                if _within_window(now):
                     if not self._playing:
                         self.play_loop()
-                else:
-                    if self._playing:
-                        self.stop()
+                elif self._playing:
+                    self.stop()
                 time.sleep(1)
 
         self._thread = threading.Thread(target=_run, daemon=True)

@@ -1,0 +1,16 @@
+[Unit]
+Description=Pi MP3 Player Service
+After=network.target sound.target
+
+[Service]
+Type=simple
+# User and WorkingDirectory will be replaced by 'just install-service'
+User=pi
+WorkingDirectory=/home/pi/pi-project
+Environment="PATH=/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/bin/env uv run main.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

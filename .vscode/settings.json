@@ -1,6 +1,13 @@
 {
   "[python]": {
     "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll": "explicit",
+      "source.organizeImports": "explicit"
+    },
     "editor.defaultFormatter": "charliermarsh.ruff"
-  }
+  },
+  "ruff.configuration": "./pyproject.toml",
+  "ruff.lineLength": 120,
+  "ruff.lint.select": ["C", "E", "F", "W"]
 }
