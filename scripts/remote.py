@@ -15,6 +15,42 @@ from dotenv import load_dotenv
 load_dotenv(".env.local")
 
 
+def handle_command_loop(sock):
+    """Handle the interactive command loop with the remote server."""
+    buffer = ""
+    while True:
+        try:
+            cmd = input("> ").strip()
+            if not cmd:
+                continue
+            if cmd.lower() in ("exit", "quit"):
+                break
+            if cmd.lower() == "help":
+                print("Commands: status, play, stop, centre <val>, sub <val>, stereo <val>, save")
+                continue
+
+            # Send command
+            sock.sendall((cmd + "\n").encode("utf-8"))
+
+            # Read response until we get a newline
+            while "\n" not in buffer:
+                chunk = sock.recv(1024).decode("utf-8")
+                if not chunk:
+                    raise ConnectionError("Server closed connection")
+                buffer += chunk
+
+            # Extract the response line
+            if "\n" in buffer:
+                response, buffer = buffer.split("\n", 1)
+                print(response.strip())
+
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(f"Error: {e}")
+            break
+
+
 def main():
     parser = argparse.ArgumentParser(description="Remote control for Pi Project")
     parser.add_argument("host", nargs="?", default="localhost", help="Hostname or IP of the Pi")
@@ -41,25 +77,7 @@ def main():
     print("Connected! Type 'help' for commands, 'exit' to quit.")
 
     with sock:
-        while True:
-            try:
-                cmd = input("> ").strip()
-                if not cmd:
-                    continue
-                if cmd.lower() in ("exit", "quit"):
-                    break
-                if cmd.lower() == "help":
-                    print("Commands: status, play, stop, volume <val>, volume2 <val>")
-                    continue
-
-                sock.sendall(cmd.encode("utf-8"))
-                response = sock.recv(1024).decode("utf-8").strip()
-                print(response)
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                print(f"Error: {e}")
-                break
+        handle_command_loop(sock)
 
 
 if __name__ == "__main__":

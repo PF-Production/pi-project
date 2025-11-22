@@ -85,26 +85,34 @@ class MP3Player:
         except Exception:
             return None
 
-    def _try_set_mixer(self, card, control, percent):
+    def _try_set_mixer(self, card, control, value_str):
         # Try to set a mixer control on card using amixer; return True on success
         try:
-            cmd = ["amixer", "-c", str(card), "set", control, f"{percent}%"]
+            cmd = ["amixer", "-c", str(card), "set", control, value_str]
             res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             return res.returncode == 0
         except FileNotFoundError:
             return False
 
-    def _set_alsa_volume_for_device(self, device, vol_float):
-        # vol_float 0.0..1.0
+    def _set_alsa_volume_for_device(self, device, vol_val):
+        # vol_val: float 0.0..1.0 OR tuple (left_float, right_float)
         if not device:
             return False
         card = self._card_from_hw(device)
         if card is None:
             return False
-        percent = int(max(0.0, min(1.0, vol_float)) * 100)
+
+        if isinstance(vol_val, (tuple, list)):
+            left = int(max(0.0, min(1.0, vol_val[0])) * 100)
+            right = int(max(0.0, min(1.0, vol_val[1])) * 100)
+            value_str = f"{left}%,{right}%"
+        else:
+            percent = int(max(0.0, min(1.0, vol_val)) * 100)
+            value_str = f"{percent}%"
+
         # common control names to try
         for control in ("Master", "PCM", "Digital", "Speaker", "Headphone"):
-            ok = self._try_set_mixer(card, control, percent)
+            ok = self._try_set_mixer(card, control, value_str)
             if ok:
                 # success
                 return True
@@ -113,6 +121,8 @@ class MP3Player:
 
     def set_volume(self, volume):
         self.volume = max(0.0, min(1.0, volume))
+        self.main_left_volume = self.volume
+        self.main_right_volume = self.volume
         if not self._use_subprocess:
             pygame.mixer.music.set_volume(self.volume)
             # if pygame second channel exists, keep its volume consistent
@@ -131,7 +141,9 @@ class MP3Player:
             if main_device:
                 ok = self._set_alsa_volume_for_device(main_device, self.volume)
                 if not ok:
-                    print(f"Warning: could not set ALSA mixer for device {main_device}")
+                    print(
+                        f"Warning: could not set ALSA mixer for device {main_device}. Try running with sudo or configure sudoers."
+                    )
 
     def set_main_channel_volumes(self, left_volume, right_volume):
         """Set left and right channel volumes for the main track independently."""
@@ -141,6 +153,22 @@ class MP3Player:
         self.volume = (self.main_left_volume + self.main_right_volume) / 2
         if not self._use_subprocess:
             pygame.mixer.music.set_volume(self.volume)
+        else:
+            # attempt to set ALSA volume for main device
+            try:
+                main_device = None
+                if isinstance(self.devices, tuple):
+                    main_device = self.devices[0]
+                else:
+                    main_device = self.devices
+                if main_device:
+                    ok = self._set_alsa_volume_for_device(main_device, (self.main_left_volume, self.main_right_volume))
+                    if not ok:
+                        print(
+                            f"Warning: could not set ALSA mixer for device {main_device}. Try running with sudo or configure sudoers."
+                        )
+            except Exception as e:
+                print(f"Error setting ALSA volume for main channels: {e}")
 
     def set_second_channel_volumes(self, left_volume, right_volume):
         """Set left and right channel volumes for the second track independently."""
@@ -154,9 +182,27 @@ class MP3Player:
                     self._pygame_channel2.set_volume(self.second_volume)
                 except Exception:
                     pass
+        else:
+            # attempt to set ALSA volume for second device
+            try:
+                second_device = None
+                if isinstance(self.devices, tuple):
+                    second_device = self.devices[1]
+                if second_device:
+                    ok = self._set_alsa_volume_for_device(
+                        second_device, (self.second_left_volume, self.second_right_volume)
+                    )
+                    if not ok:
+                        print(
+                            f"Warning: could not set ALSA mixer for device {second_device}. Try running with sudo or configure sudoers."
+                        )
+            except Exception as e:
+                print(f"Error setting ALSA volume for second channels: {e}")
 
     def set_second_volume(self, volume):
         self.second_volume = max(0.0, min(1.0, volume))
+        self.second_left_volume = self.second_volume
+        self.second_right_volume = self.second_volume
         if not self._use_subprocess:
             if self._pygame_channel2:
                 try:
@@ -171,7 +217,9 @@ class MP3Player:
             if second_device:
                 ok = self._set_alsa_volume_for_device(second_device, self.second_volume)
                 if not ok:
-                    print(f"Warning: could not set ALSA mixer for device {second_device}")
+                    print(
+                        f"Warning: could not set ALSA mixer for device {second_device}. Try running with sudo or configure sudoers."
+                    )
 
     def _start_subprocess_playback(self):
         """Start subprocess-based ALSA playback for each device."""

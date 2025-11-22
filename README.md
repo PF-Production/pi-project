@@ -97,7 +97,7 @@ just remote
 just remote <PI_IP_ADDRESS>
 ```
 
-Once connected, use commands like `just status`, `just play`, `just stop`, and `just volume <0-1>` to control playback and volume without needing SSH access.
+Once connected, use commands to control playback and volume without needing SSH access.
 
 ## Just Commands
 
@@ -245,8 +245,10 @@ Once connected, you can:
 - `status` – Check if playing and current volumes
 - `play` – Start playback
 - `stop` – Stop playback
-- `volume <0-1>` – Set main channel volume
-- `volume2 <0-1>` – Set stereo channel volume
+- `centre <0-1>` – Set centre channel volume (Main Left)
+- `sub <0-1>` – Set sub channel volume (Main Right)
+- `stereo <0-1>` – Set stereo channel volume
+- `save` – Save current volume settings to .env.local
 
 ### Checking Logs
 
@@ -335,9 +337,11 @@ The easiest way to control playback remotely:
 
    ```bash
    > status
-   status: playing vol1=0.50 vol2=0.50
-   > volume 0.8
-   ok: volume=0.8
+   status: playing centre=0.50 sub=0.50 stereo=0.50
+   > centre 0.8
+   ok: centre=0.8
+   > save
+   ok: saved
    > stop
    ok
    > exit

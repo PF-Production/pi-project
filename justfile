@@ -82,12 +82,28 @@ remote host="localhost":
 # Enable SSH on Raspberry Pi
 enable-ssh:
     @if command -v systemctl &> /dev/null; then \
+        echo "Checking if SSH is installed..."; \
+        if ! systemctl list-unit-files | grep -q ssh.service; then \
+            echo "SSH not found, attempting to install openssh-server..."; \
+            if command -v apt-get &> /dev/null; then \
+                sudo apt-get update; \
+                sudo apt-get install -y openssh-server; \
+            else \
+                echo "Error: apt-get not found. Cannot install openssh-server."; \
+                exit 1; \
+            fi; \
+        fi; \
         echo "Enabling SSH service..."; \
         sudo systemctl enable ssh; \
         sudo systemctl start ssh; \
-        echo "✓ SSH enabled"; \
+        echo "✓ SSH enabled and running"; \
+        echo ""; \
+        echo "To connect, use one of these:"; \
+        echo "  ssh $(whoami)@$(hostname).local"; \
+        echo "  or get your IP with: just ip"; \
     else \
-        echo "Error: systemctl not found. Is this a Raspberry Pi?"; \
+        echo "Error: systemctl not found. This doesn't appear to be a Raspberry Pi or Linux system."; \
+        exit 1; \
     fi
 
 # Install systemd service to run on boot
