@@ -232,6 +232,7 @@ def print_header(text):
     print(f"{'=' * 60}")
 
 
+# ruff: noqa: C901
 def main():
     print_header("AUDIO DEVICE & VOLUME CONFIGURATION")
 
