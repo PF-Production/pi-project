@@ -14,7 +14,26 @@ setup:
     fi
     uv sync
     uv pip install ruff
+    @if ! [ -f .env.local ]; then \
+        echo "Creating .env.local from template..."; \
+        cp .env.template .env.local; \
+    fi
+    @echo "Creating files directory..."
+    @mkdir -p files
+    @echo "Downloading audio files..."
+    @uv run scripts/download_files.py || echo "Note: Download failed. Please manually populate .env.local with URLs and run 'just download'"
+    @if command -v apt-get &> /dev/null; then \
+        echo "Installing Raspberry Pi dependencies..."; \
+        sudo apt-get update; \
+        sudo apt-get install -y python3-dev libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev libjpeg-dev pkg-config alsa-utils; \
+    fi
     @echo "✓ Setup complete"
+
+# Download audio files from URLs in .env.local
+download:
+    @echo "Downloading audio files..."
+    uv run scripts/download_files.py
+    @echo "✓ Files downloaded"
 
 # Clean build artifacts and cache files
 clean:
@@ -35,3 +54,7 @@ check:
     ruff check . --fix
     ruff check .
     @echo "✓ All checks passed"
+
+# Start the audio player
+play:
+    uv run main.py

@@ -1,22 +1,24 @@
-from mp3_player import MP3Player
-import time
 import argparse
 import os
+import time
+
+from dotenv import load_dotenv
+
+from mp3_player import MP3Player
+
+# Load environment variables from .env.local if it exists
+load_dotenv(".env.local")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Run MP3Player with optional device args"
-    )
+    parser = argparse.ArgumentParser(description="Run MP3Player with optional device args")
     parser.add_argument(
         "--device1", help="ALSA hw device for main track (e.g. hw:1,0)", default=None
     )
     parser.add_argument(
         "--device2", help="ALSA hw device for second track (e.g. hw:2,0)", default=None
     )
-    parser.add_argument(
-        "--volume", type=float, help="Main track volume 0.0-1.0", default=0.5
-    )
+    parser.add_argument("--volume", type=float, help="Main track volume 0.0-1.0", default=0.5)
     parser.add_argument(
         "--second-volume", type=float, help="Second track volume 0.0-1.0", default=0.5
     )
@@ -46,8 +48,8 @@ def main():
         )
 
     player = MP3Player(
-        "./files/Stereo Drums.wav",
-        second_path="./files/Vox L - Synth R.wav",
+        "./files/centre.wav",
+        second_path="./files/stereo.wav",
         volume=args.volume,
         audio_device=audio_device,
         second_volume=args.second_volume,
