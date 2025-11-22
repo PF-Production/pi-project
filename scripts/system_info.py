@@ -130,14 +130,14 @@ def main():
 
     if config and any(config.values()):
         print("\nDevice Configuration:")
-        print(f"  Device 1 (Main): {config.get('device1', '(not set)')}")
-        print(f"  Device 2 (Secondary): {config.get('device2', '(not set)')}")
+        print(f"  Device 1 (C+Sub): {config.get('device1', '(not set)')}")
+        print(f"  Device 2 (Stereo): {config.get('device2', '(not set)')}")
 
         print("\nVolume Settings:")
-        print(f"  Centre Left:    {config.get('centre_left_volume', '(not set)')}")
-        print(f"  Centre Right:   {config.get('centre_right_volume', '(not set)')}")
-        print(f"  Stereo Left:    {config.get('stereo_left_volume', '(not set)')}")
-        print(f"  Stereo Right:   {config.get('stereo_right_volume', '(not set)')}")
+        print(f"  Centre Left (C):      {config.get('centre_left_volume', '(not set)')}")
+        print(f"  Centre Right (Sub):   {config.get('centre_right_volume', '(not set)')}")
+        print(f"  Stereo Left:          {config.get('stereo_left_volume', '(not set)')}")
+        print(f"  Stereo Right:         {config.get('stereo_right_volume', '(not set)')}")
     else:
         print("\n⊘ No configuration found in .env.local")
         print("   Run 'just configure' to set up audio devices and volumes")

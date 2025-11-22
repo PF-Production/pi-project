@@ -24,8 +24,8 @@ class MP3Player:
     ):
         # audio_device may be:
         #  - None -> use default OS audio (pygame)
-        #  - a single string (e.g. "hw:1,0") -> use that device for the main track
-        #  - a tuple/list of two strings (device_main, device_second) -> play each track to its device
+        #  - a single string (e.g. "hw:1,0") -> use that device for the centre track
+        #  - a tuple/list of two strings (centre_device, stereo_device) -> play each track to its device
         self._subprocs = []
 
         self.mp3_path = mp3_path

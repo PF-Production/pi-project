@@ -12,8 +12,8 @@ load_dotenv(".env.local")
 
 def main():
     parser = argparse.ArgumentParser(description="Run MP3Player with optional device args")
-    parser.add_argument("--device1", help="ALSA hw device for main track (e.g. hw:1,0)", default=None)
-    parser.add_argument("--device2", help="ALSA hw device for second track (e.g. hw:2,0)", default=None)
+    parser.add_argument("--device1", help="ALSA hw device for centre track (e.g. hw:1,0)", default=None)
+    parser.add_argument("--device2", help="ALSA hw device for stereo track (e.g. hw:2,0)", default=None)
     parser.add_argument("--volume", type=float, help="Main track volume 0.0-1.0", default=None)
     parser.add_argument("--second-volume", type=float, help="Second track volume 0.0-1.0", default=None)
     args = parser.parse_args()

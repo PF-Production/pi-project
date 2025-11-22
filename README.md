@@ -31,7 +31,7 @@ The `just setup` command will:
 ### 2. Check Your Audio Devices
 
 ```bash
-just sysinfo
+just info
 ```
 
 This shows available audio devices, current configuration, and audio file status.
@@ -39,7 +39,7 @@ This shows available audio devices, current configuration, and audio file status
 ### 3. Configure Audio Devices
 
 ```bash
-just configure
+just config
 ```
 
 This interactive wizard lets you:
@@ -63,8 +63,8 @@ The project uses [just](https://github.com/casey/just) for common tasks:
 
 ```bash
 just setup     # Install dependencies and system packages
-just sysinfo   # Show audio devices and current configuration
-just configure # Interactive setup wizard for devices and volumes
+just info      # Show audio devices and current configuration
+just config    # Interactive setup wizard for devices and volumes
 just play      # Run the audio player
 just download  # Download audio files specified in .env.local
 just check     # Check code formatting and linting with ruff
@@ -210,3 +210,36 @@ player.set_second_channel_volumes(left_volume=0.5, right_volume=0.4)
 - **Mixer control fails**: Use `amixer -c <card> scontrols` to see available controls on your hardware
 - **Permission issues**: Ensure your user is in the `audio` group: `sudo usermod -aG audio $USER`
 - **pygame fallback on Pi**: If ALSA mode doesn't activate, ensure `aplay` is installed and `AUDIO_DEVICE_1`/`AUDIO_DEVICE_2` are set
+
+### Systemd Service Files
+
+The `systemd/` folder contains unit files for running the audio player as a systemd service on Raspberry Pi:
+
+- `pi-mp3.service` – Main service that runs the player
+- `pi-mp3-start.timer` – Timer to start the player at a scheduled time
+- `pi-mp3-stop.timer` – Timer to stop the player at a scheduled time
+- `main-py-*` – Alternative service/timer files for different startup scenarios
+
+**Deployment:**
+
+Copy the desired `.service` and `.timer` files to `/etc/systemd/system/` on the Pi:
+
+```bash
+sudo cp systemd/pi-mp3.service /etc/systemd/system/
+sudo cp systemd/pi-mp3-start.timer /etc/systemd/system/
+```
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable pi-mp3.service
+sudo systemctl start pi-mp3.service
+```
+
+Check status:
+
+```bash
+sudo systemctl status pi-mp3.service
+sudo journalctl -u pi-mp3.service -f
+```

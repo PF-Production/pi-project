@@ -121,21 +121,21 @@ def get_volume_input(prompt, default=0.5):
             print("  ✗ Invalid input. Please enter a number between 0.0 and 1.0")
 
 
-def select_device(devices, device_num, current_device=None):
+def select_device(devices, device_name, current_device=None):
     """Prompt user to select a device from available options."""
     if not devices:
-        print(f"\n✗ No audio devices found for device {device_num}")
+        print(f"\n✗ No audio devices found for {device_name} device")
         custom = input("Enter custom device string (or press Enter to skip): ").strip()
         return custom if custom else None
 
-    print(f"\nAvailable devices for device {device_num}:")
+    print(f"\nAvailable devices for {device_name}:")
     sorted_devices = sorted(devices.items())
     for i, (device_id, name) in enumerate(sorted_devices, 1):
         marker = " ← current" if device_id == current_device else ""
         print(f"  {i}. {device_id:15} - {name}{marker}")
 
     print(f"  {len(sorted_devices) + 1}. Enter custom device string")
-    print(f"  {len(sorted_devices) + 2}. Skip / Remove device {device_num}")
+    print(f"  {len(sorted_devices) + 2}. Skip {device_name} device")
 
     while True:
         try:
@@ -226,15 +226,17 @@ def main():
     # Device selection
     print_header("DEVICE SELECTION")
 
-    device1 = select_device(all_devices, 1, current_device1)
-    device2 = select_device(all_devices, 2, current_device2)
+    device1 = select_device(all_devices, "Centre", current_device1)
+    device2 = select_device(all_devices, "Stereo", current_device2)
 
     # Volume configuration
     print_header("VOLUME CONFIGURATION")
 
     print("\nCentre Channel (mono)")
-    centre_left, centre_left_provided = get_volume_input("  Left volume (0.0-1.0):", current_centre_left)
-    centre_right, centre_right_provided = get_volume_input("  Right volume (0.0-1.0):", current_centre_right)
+    centre_left, centre_left_provided = get_volume_input("  Centre Left (C) volume (0.0-1.0):", current_centre_left)
+    centre_right, centre_right_provided = get_volume_input(
+        "  Centre Right (Sub) volume (0.0-1.0):", current_centre_right
+    )
 
     print("\nStereo Channel")
     stereo_left, stereo_left_provided = get_volume_input("  Left volume (0.0-1.0):", current_stereo_left)
@@ -244,14 +246,14 @@ def main():
     print_header("CONFIGURATION SUMMARY")
 
     print("\nDevice Configuration:")
-    print(f"  Device 1 (Main):        {device1 or '(not set)'}")
-    print(f"  Device 2 (Secondary):   {device2 or '(not set)'}")
+    print(f"  Device 1 (C+Sub):  {device1 or '(not set)'}")
+    print(f"  Device 2 (Stereo):  {device2 or '(not set)'}")
 
     print("\nVolume Settings:")
-    print(f"  Centre Left:    {centre_left:.1f}")
-    print(f"  Centre Right:   {centre_right:.1f}")
-    print(f"  Stereo Left:    {stereo_left:.1f}")
-    print(f"  Stereo Right:   {stereo_right:.1f}")
+    print(f"  Centre Left (C):      {centre_left:.1f}")
+    print(f"  Centre Right (Sub):   {centre_right:.1f}")
+    print(f"  Stereo Left:          {stereo_left:.1f}")
+    print(f"  Stereo Right:         {stereo_right:.1f}")
 
     confirm = input("\nSave this configuration to .env.local? (y/n): ").strip().lower()
 
