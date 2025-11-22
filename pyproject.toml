@@ -3,9 +3,13 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pi-project"
-version = "0.1.0"
-description = "This is a playback project"
+name = "karla-bidi-playback"
+version = "1.0.0"
+description = "This is a playback python tooling for Karla Bidi to playback audio files on a raspberrypi"
+authors = [
+    { name = "Jordan Gibbs"},
+    { name = "Dana Iopollo"}
+]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
