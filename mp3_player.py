@@ -17,6 +17,10 @@ class MP3Player:
         volume=0.5,
         audio_device=None,
         second_volume=0.5,
+        main_left_volume=None,
+        main_right_volume=None,
+        second_left_volume=None,
+        second_right_volume=None,
     ):
         # audio_device may be:
         #  - None -> use default OS audio (pygame)
@@ -28,6 +32,13 @@ class MP3Player:
         self.second_path = second_path
         self.volume = volume
         self.second_volume = second_volume
+
+        # Per-channel volume settings (defaults to overall volume if not specified)
+        self.main_left_volume = main_left_volume if main_left_volume is not None else volume
+        self.main_right_volume = main_right_volume if main_right_volume is not None else volume
+        self.second_left_volume = second_left_volume if second_left_volume is not None else second_volume
+        self.second_right_volume = second_right_volume if second_right_volume is not None else second_volume
+
         # keep reference to pygame channel for second track (dev/testing)
         self._pygame_channel2 = None
         self._playing = False
@@ -121,6 +132,28 @@ class MP3Player:
                 ok = self._set_alsa_volume_for_device(main_device, self.volume)
                 if not ok:
                     print(f"Warning: could not set ALSA mixer for device {main_device}")
+
+    def set_main_channel_volumes(self, left_volume, right_volume):
+        """Set left and right channel volumes for the main track independently."""
+        self.main_left_volume = max(0.0, min(1.0, left_volume))
+        self.main_right_volume = max(0.0, min(1.0, right_volume))
+        # Update overall volume to average
+        self.volume = (self.main_left_volume + self.main_right_volume) / 2
+        if not self._use_subprocess:
+            pygame.mixer.music.set_volume(self.volume)
+
+    def set_second_channel_volumes(self, left_volume, right_volume):
+        """Set left and right channel volumes for the second track independently."""
+        self.second_left_volume = max(0.0, min(1.0, left_volume))
+        self.second_right_volume = max(0.0, min(1.0, right_volume))
+        # Update overall volume to average
+        self.second_volume = (self.second_left_volume + self.second_right_volume) / 2
+        if not self._use_subprocess:
+            if self._pygame_channel2:
+                try:
+                    self._pygame_channel2.set_volume(self.second_volume)
+                except Exception:
+                    pass
 
     def set_second_volume(self, volume):
         self.second_volume = max(0.0, min(1.0, volume))

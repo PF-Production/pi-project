@@ -1,52 +1,90 @@
 # Pi Project
 
-This is a test project designed to run on a Raspberry Pi. The goal is to experiment with Raspberry Pi hardware and software capabilities.
+A Python audio playback application for Raspberry Pi with multi-device output support. Routes mono (centre) and stereo audio to separate hardware outputs with independent volume control per channel.
 
 ## Features
 
-- Easy setup and deployment
-- Modular codebase for quick prototyping
-- Compatible with Raspberry Pi OS
+- **Multi-output support**: Route different audio streams to separate ALSA devices on Raspberry Pi
+- **Per-channel volume control**: Adjust left/right volumes independently for each output
+- **Easy configuration**: Interactive setup wizard to detect and configure audio devices
+- **Cross-platform**: Works on Raspberry Pi (ALSA) and macOS (pygame)
+- **Simple deployment**: Just one command to set up everything
 
-## Getting Started
+## Quick Start
 
-1. Clone this repository.
-2. Run `just setup` to install dependencies, create `.env.local`, and download audio files.
-3. Populate `.env.local` with your audio file URLs (if not downloaded automatically).
-4. Run `just play` to start the audio player on your Raspberry Pi or macOS.
-
-Clone the repository:
+### 1. Clone and Setup
 
 ```bash
 git clone https://github.com/PF-Production/pi-project.git
 cd pi-project
-```
-
-Install system dependencies and set up the project:
-
-```bash
 just setup
 ```
 
-This command will:
+The `just setup` command will:
 
 - Install Python dependencies via `uv`
-- Install `ruff` for code linting and formatting
-- Create `.env.local` from `.env.template` (used for audio file URLs)
-- Create a `files/` directory and download audio files from the URLs you provide
-- On Raspberry Pi: automatically install system packages (libsdl2, alsa-utils, etc.)
-- On macOS: skip system packages (handled by Homebrew)
+- Install development tools (ruff for linting)
+- Create `.env.local` from `.env.template`
+- Create `files/` directory and download audio files
+- On Raspberry Pi: install system packages (SDL2, ALSA utilities)
 
-## Audio Files
+### 2. Check Your Audio Devices
+
+```bash
+just sysinfo
+```
+
+This shows available audio devices, current configuration, and audio file status.
+
+### 3. Configure Audio Devices
+
+```bash
+just configure
+```
+
+This interactive wizard lets you:
+
+- Select which audio device to use for each output
+- Set volume levels for centre channel (left/right)
+- Set volume levels for stereo channel (left/right)
+- Save configuration to `.env.local`
+
+### 4. Start Playing
+
+```bash
+just play
+```
+
+The application loads your configuration and starts playback.
+
+## Just Commands
+
+The project uses [just](https://github.com/casey/just) for common tasks:
+
+```bash
+just setup     # Install dependencies and system packages
+just sysinfo   # Show audio devices and current configuration
+just configure # Interactive setup wizard for devices and volumes
+just play      # Run the audio player
+just download  # Download audio files specified in .env.local
+just check     # Check code formatting and linting with ruff
+just clean     # Remove build artifacts and cache files
+```
+
+---
+
+## Detailed Documentation
+
+### Audio Files
 
 The project expects audio files in the `files/` directory:
 
-- `files/centre.wav` – Centre channel audio (both channels contain centre information)
-- `files/stereo.wav` – Stereo audio (left and right channels)
+- `files/centre.wav` – Centre channel audio (mono content, same in both channels)
+- `files/stereo.wav` – Stereo audio (independent left and right channels)
 
-**Note:** Despite their names, both files are actually stereo files. The "centre" file carries the same audio in both channels, while the "stereo" file carries independent left and right content.
+**Note:** Both files are stereo WAV files. The "centre" file contains the same audio in both channels, while the "stereo" file contains independent left and right content.
 
-To download files automatically during setup, populate `.env.local` with URLs:
+To download files automatically, populate `.env.local` with URLs:
 
 ```bash
 WAV_CENTRE_URL=https://example.com/centre.wav
@@ -58,150 +96,117 @@ MP3_STEREO_URL=https://example.com/stereo.mp3
 Then run:
 
 ```bash
-just download-files
+just download
 ```
 
-## Just Commands
+### Configuration Reference
 
-The project uses [just](https://github.com/casey/just) for common tasks:
+Settings are saved in `.env.local` with the following variables:
 
 ```bash
-just setup    # Install dependencies and system packages (Pi-aware)
-just download # Download audio files specified in .env.local
-just play     # Run the audio player (uv run main.py)
-just check    # Check code formatting and linting with ruff
-just clean    # Remove build artifacts, cache files, and virtual environments
-just          # List all available commands
+AUDIO_DEVICE_1=hw:0,0           # Main output device (centre channel)
+AUDIO_DEVICE_2=hw:1,0           # Secondary output device (stereo channel)
+CENTRE_LEFT_VOLUME=0.5          # Centre channel left volume (0.0-1.0)
+CENTRE_RIGHT_VOLUME=0.5         # Centre channel right volume (0.0-1.0)
+STEREO_LEFT_VOLUME=0.5          # Stereo channel left volume (0.0-1.0)
+STEREO_RIGHT_VOLUME=0.5         # Stereo channel right volume (0.0-1.0)
 ```
 
-## Checking audio playback
+Use `just configure` to set these interactively, or edit `.env.local` directly.
 
-- Ensure your speakers or headphones are connected to the Raspberry Pi.
-- Run command to determine audio device
-- Update the `AUDIODEV` variable in the code with the correct `CARD` and `DEVICE` values.
+### Command-Line Arguments
+
+You can also pass device and volume settings via CLI arguments:
 
 ```bash
-aplay -l
+uv run main.py --device1 hw:0,0 --device2 hw:1,0 --volume 0.7 --second-volume 0.5
 ```
 
-## Quick start (dev and Pi)
+### Development
 
-These short instructions show how to run the project locally on macOS for development and on a Raspberry Pi with multiple ALSA outputs.
+Using the MP3Player class directly:
 
-### 1) On macOS (development)
-
-- Install Python dependencies (pygame is used for local playback):
-
-```bash
-python3 -m pip install --user pygame
-```
-
-- Run the example `main.py` (use the default system audio device):
-
-```bash
-python3 main.py
-```
-
-- If you call `MP3Player` directly for local testing, pass `audio_device=None` (or omit the argument). Example:
-
-```py
+```python
 from mp3_player import MP3Player
-player = MP3Player("./files/centre.wav", second_path="./files/stereo.wav", volume=0.1, audio_device=None)
+
+# macOS (development) - uses pygame, default system output
+player = MP3Player(
+    "./files/centre.wav",
+    second_path="./files/stereo.wav",
+    volume=0.1,
+    audio_device=None
+)
+player.play_loop()
+
+# Raspberry Pi - send to specific ALSA devices
+player = MP3Player(
+    "./files/centre.wav",
+    second_path="./files/stereo.wav",
+    audio_device=("hw:1,0", "hw:2,0"),
+    main_left_volume=0.6,
+    main_right_volume=0.7,
+    second_left_volume=0.5,
+    second_right_volume=0.5
+)
 player.play_loop()
 ```
 
-### 2) On Raspberry Pi (two outputs)
+### Technical Details
 
-- Install ALSA utilities if not already present:
+#### On Raspberry Pi
 
-```bash
-sudo apt update
-sudo apt install -y alsa-utils python3-pip
-```
+- Uses `aplay` subprocess loops to send each audio stream to its specified ALSA device
+- Automatically tries common mixer controls (Master, PCM, Digital, Speaker, Headphone) via `amixer`
+- Falls back to pygame if `aplay` is not available
+- Avoids initializing SDL/pygame on headless setups
 
-- Find available ALSA devices:
+#### On macOS (Development)
+
+- Uses pygame for audio playback through the default system output
+- Per-channel volumes are applied via software mixing
+
+#### ALSA Device Selection
+
+Find available devices on Raspberry Pi:
 
 ```bash
 aplay -l
 ```
 
-- Update `main.py` (or construct `MP3Player`) to pass a tuple of device names returned by `aplay`.
-  Example using two hardware devices `hw:1,0` and `hw:2,0`:
+The output shows device names like `hw:0,0`, `hw:1,0`, etc. Use these device IDs with the configuration wizard or pass them directly.
 
-```py
-from mp3_player import MP3Player
-player = MP3Player("./files/centre.wav", second_path="./files/stereo.wav", audio_device=("hw:1,0","hw:2,0"))
-player.play_loop()
-```
+#### Volume Control on Raspberry Pi
 
-- Run the script on the Pi:
+The code includes helpers that attempt to set mixer controls via `amixer`. It tries common control names (Master, PCM, Digital, Speaker, Headphone) automatically.
+
+Quick commands:
 
 ```bash
-python3 main.py
-```
-
-You can pass ALSA devices via CLI arguments. Examples:
-
-```bash
-
-# if you use the 'uv' runner
-uv run main.py --device1 hw:1,0 --device2 hw:2,0
-```
-
-If you omit `--device1`/`--device2` the script will fall back to the default audio path (pygame/local default) or to `AUDIO_DEVICE_1`/`AUDIO_DEVICE_2` environment variables if set.
-
-Notes for Pi:
-
-- The code uses `aplay` subprocess loops to send each file to the specified ALSA device. This avoids initializing SDL/pygame on headless setups and prevents one process from grabbing a hardware device.
-- Per-device software volume is not managed by the Python code when using `aplay`. Use `amixer` or system mixer controls to adjust levels.
-
-### ALSA / amixer notes (per-device volume on the Pi)
-
-- The repository now includes best-effort helpers that call `amixer` to set mixer controls on a card derived from strings like `hw:1,0`.
-- `amixer` controls operate at the card level and depend on the card's available mixer controls (common names: `Master`, `PCM`, `Digital`, `Speaker`, `Headphone`). The code tries several controls automatically but may fail for uncommon hardware.
-
-Quick checks and example commands:
-
-```bash
-# list ALSA devices
-aplay -l
-
-# list mixer controls for card 1 (replace with your card index)
+# list mixer controls for card 1
 amixer -c 1 scontrols
 
 # set card 1 Master control to 60%
 amixer -c 1 set Master 60%
 ```
 
-Runtime volume from Python (examples):
+Runtime volume adjustments:
 
-```py
+```python
 # set main device to 60%
 player.set_volume(0.6)
 
 # set second device to 20%
 player.set_second_volume(0.2)
+
+# set independent left/right volumes
+player.set_main_channel_volumes(left_volume=0.6, right_volume=0.7)
+player.set_second_channel_volumes(left_volume=0.5, right_volume=0.4)
 ```
 
-Notes:
+### Troubleshooting
 
-- If `amixer` isn't installed, install `alsa-utils` on the Pi: `sudo apt install alsa-utils`.
-- If the automatic control probes fail, use `amixer -c <card> scontrols` to list available controls and pick one to set manually or extend the code to try that control.
-
-### pygame limitations (local dev)
-
-- `pygame` (SDL backend) provides per-sound and per-channel software volume but does not reliably allow routing different streams to different physical hardware devices across platforms.
-- For local macOS testing you can set independent software volumes for each track (see runtime examples above), but to route separate streams to distinct hardware outputs you need OS-level routing (ALSA device selection, PulseAudio, JACK) or the ALSA `aplay -D` approach used on the Pi.
-
-## Examples
-
-- Single-output local test (macOS): use `audio_device=None` and pygame.
-- Multi-output Pi: pass a tuple `("hw:X,Y","hw:Z,W")` when creating `MP3Player`.
-- Both `centre.wav` and `stereo.wav` files are stereo; they contain different channel configurations for testing multi-output routing.
-
-## Troubleshooting
-
-- If audio doesn't play on Pi, confirm `aplay -l` shows the devices and that your device names match the strings passed to `MP3Player`.
-- If `aplay` is missing the code will fall back to `pygame` (single output). Install `alsa-utils` to enable Pi mode.
-- For permission problems with audio devices, ensure your user is in the `audio` group or run under appropriate privileges.
-- Remember to use uv to run scripts that depend on installed packages, not plain python.
+- **No audio on Pi**: Confirm `aplay -l` shows devices and device names match what you configured
+- **`aplay` not found**: Install `alsa-utils` on the Pi: `sudo apt install alsa-utils`
+- **Mixer control fails**: Use `amixer -c <card> scontrols` to see available controls on your hardware
+- **Permission issues**: Ensure your user is in the `audio` group: `sudo usermod -aG audio $USER`
+- **pygame fallback on Pi**: If ALSA mode doesn't activate, ensure `aplay` is installed and `AUDIO_DEVICE_1`/`AUDIO_DEVICE_2` are set

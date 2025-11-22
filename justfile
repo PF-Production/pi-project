@@ -21,7 +21,11 @@ setup:
     @echo "Creating files directory..."
     @mkdir -p files
     @echo "Downloading audio files..."
-    @uv run scripts/download_files.py || echo "Note: Download failed. Please manually populate .env.local with URLs and run 'just download'"
+    @if [ ! -f files/centre.wav ] || [ ! -f files/stereo.wav ]; then \
+        uv run scripts/download_files.py || echo "Note: Download failed. Please manually populate .env.local with URLs and run 'just download'"; \
+    else \
+        echo "Audio files already exist, skipping download"; \
+    fi
     @if command -v apt-get &> /dev/null; then \
         echo "Installing Raspberry Pi dependencies..."; \
         sudo apt-get update; \
@@ -54,6 +58,14 @@ check:
     ruff check . --fix
     ruff check .
     @echo "✓ All checks passed"
+
+# Show system info and audio devices
+info:
+    uv run scripts/system_info.py
+
+# Configure audio devices and volume settings
+config:
+    uv run scripts/configure.py
 
 # Start the audio player
 play:
