@@ -3,8 +3,8 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
-name = "pi-project"
-version = "0.1.0"
+name = "karla-bidi-playback"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "pydub" },
