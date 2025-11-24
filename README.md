@@ -25,7 +25,7 @@ Made to create immersive soundscapes using multiple speakers connected to a sing
 ```bash
 git clone https://github.com/PF-Production/pi-project.git
 cd pi-project
-just setup
+uv run just setup
 ```
 
 The `just setup` command will:

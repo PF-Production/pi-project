@@ -8,9 +8,16 @@ default:
 setup:
     @echo "Setting up development environment..."
     @if ! command -v uv &> /dev/null; then \
-        echo "uv not found, installing via python3..."; \
-        python3 -m pip install --upgrade pip; \
-        python3 -m pip install uv; \
+        echo "uv not found, installing..."; \
+        if command -v apt-get &> /dev/null; then \
+            echo "Installing uv via curl (recommended for Raspberry Pi)..."; \
+            curl -LsSf https://astral.sh/uv/install.sh | sh; \
+            export PATH="$$HOME/.cargo/bin:$$PATH"; \
+        else \
+            echo "Installing uv via pip..."; \
+            python3 -m pip install --upgrade pip; \
+            python3 -m pip install uv; \
+        fi; \
     fi
     uv sync
     uv pip install ruff
