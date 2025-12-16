@@ -26,7 +26,10 @@ def handle_command_loop(sock):
             if cmd.lower() in ("exit", "quit"):
                 break
             if cmd.lower() == "help":
-                print("Commands: status, play, stop, centre <val>, sub <val>, stereo <val>, save")
+                print(
+                    "Commands: status, play (start playback now), stop (stop playback now), "
+                    "centre <val>, sub <val>, stereo <val>, save"
+                )
                 continue
 
             # Send command

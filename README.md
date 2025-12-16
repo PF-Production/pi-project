@@ -107,7 +107,7 @@ The project uses [just](https://github.com/casey/just) for common tasks:
 just setup     # Install dependencies and system packages
 just info      # Show audio devices and current configuration
 just config    # Interactive setup wizard for devices and volumes
-just play      # Run the audio player. Run `just play:now` to ignore schedule
+just play      # Run the audio player. Run `just play-now` to ignore schedule
 just download  # Download audio files specified in .env.local
 just install-service # Install systemd service on Raspberry Pi
 just remote    # Connect to running player via TCP
@@ -169,7 +169,7 @@ Use `just configure` to set these interactively, or edit `.env.local` directly.
 - Set both `PLAY_START_TIME` and `PLAY_END_TIME` (HH:MM, 24-hour) to delay playback until the start time is reached and stop it automatically at the end time.
 - Windows that wrap past midnight (e.g., `21:00` to `05:00`) are supported. If the times match, playback runs continuously.
 - Leaving either value blank disables scheduling so the player starts immediately after boot.
-- Use `just play:now` (or pass `--ignore-schedule`) to force an immediate manual run without waiting for the next start window.
+- Use `just play-now` (or pass `--ignore-schedule`) to force an immediate manual run without waiting for the next start window.
 
 ### Command-Line Arguments
 
@@ -243,12 +243,18 @@ just remote <PI_IP_ADDRESS>
 Once connected, you can:
 
 - `status` – Check if playing and current volumes
-- `play` – Start playback
-- `stop` – Stop playback
+- `play` – Start playback immediately (does not change the configured schedule)
+- `stop` – Stop playback immediately (does not change the configured schedule)
 - `centre <0-1>` – Set centre channel volume (Main Left)
 - `sub <0-1>` – Set sub channel volume (Main Right)
 - `stereo <0-1>` – Set stereo channel volume
 - `save` – Save current volume settings to .env.local
+
+Schedule interaction:
+
+- If scheduling is configured, the player auto-starts once per playback window (including on boot if already inside the window).
+- If you send `stop` during an active window, playback stops and will not auto-restart until the next window/day.
+- Sending `play` always starts playback immediately. If sent during an active window, playback will stop at the end of that window.
 
 ### Checking Logs
 

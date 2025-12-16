@@ -5,7 +5,7 @@ import signal
 import subprocess
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pygame
 
@@ -44,8 +44,22 @@ class MP3Player:
         self._pygame_channel2 = None
         self._playing = False
         self._thread = None
-        # When True, scheduled playback will not auto-start until a manual play is requested.
-        self._manual_stop = False
+
+        # Playback source:
+        # - None: not playing
+        # - "manual": started via remote 'play' or immediate startup (--ignore-schedule)
+        # - "scheduled": started by the schedule window
+        self._playback_source = None
+
+        # Scheduling state (only set when play_between_times() is used)
+        self._schedule_start_time = None
+        self._schedule_end_time = None
+
+        # Track window instances so we can enforce "start once per window"
+        self._schedule_started_window_id = None
+        self._manual_stop_window_id = None
+        # If set, manual playback was started during this window and should stop at window end
+        self._manual_play_window_id = None
 
         # Normalize devices
         if audio_device is None:
@@ -76,6 +90,37 @@ class MP3Player:
                     os.environ["AUDIODEV"] = self.devices[0]
             pygame.mixer.init()
             pygame.mixer.music.set_volume(self.volume)
+
+    def _within_window_time(self, now, start_time, end_time):
+        if start_time == end_time:
+            # Treat matching times as "always on"
+            return True
+        if start_time < end_time:
+            return start_time <= now < end_time
+        # Window wraps past midnight
+        return now >= start_time or now < end_time
+
+    def _current_window_id(self, now_dt):
+        """Return a stable identifier for the current active window instance, or None."""
+        if self._schedule_start_time is None or self._schedule_end_time is None:
+            return None
+
+        start_time = self._schedule_start_time
+        end_time = self._schedule_end_time
+        now_time = now_dt.time()
+
+        if not self._within_window_time(now_time, start_time, end_time):
+            return None
+
+        # Determine which calendar date the window started on (important when wrapping midnight)
+        if start_time == end_time:
+            start_date = now_dt.date()
+        elif start_time < end_time:
+            start_date = now_dt.date()
+        else:
+            start_date = now_dt.date() if now_time >= start_time else (now_dt.date() - timedelta(days=1))
+
+        return (start_date.isoformat(), start_time.strftime("%H:%M"), end_time.strftime("%H:%M"))
 
     # --- ALSA volume helpers (best-effort using amixer) ---------------------------------
     def _card_from_hw(self, device_str):
@@ -281,23 +326,37 @@ class MP3Player:
             channel2.play(sound2, loops=-1)
             self._pygame_channel2 = channel2
 
-    def play_loop(self):
+    def play_loop(self, source: str = "manual"):
         """
         Cross-platform play:
         - On Linux with ALSA devices and `aplay` available: spawn subprocess loops for each device.
         - Otherwise: use pygame.mixer (single default output) for dev on macOS/Windows.
         """
-        # Manual play should always clear the manual stop override.
-        self._manual_stop = False
+        # An explicit play should always be immediate.
+        # Also clear any manual-stop suppression for the current window.
+        self._manual_stop_window_id = None
+        self._playback_source = source
+
+        # If we have a schedule configured, and manual play happens inside an active window,
+        # treat it as "play until the end of this window".
+        if source == "manual" and self._schedule_start_time is not None and self._schedule_end_time is not None:
+            self._manual_play_window_id = self._current_window_id(datetime.now())
+        else:
+            self._manual_play_window_id = None
         if self._use_subprocess:
             self._start_subprocess_playback()
         else:
             self._start_pygame_playback()
 
-    def stop(self, manual: bool = False):
-        # A manual stop should pause scheduled playback until a manual play occurs.
+    def stop(self, manual: bool = False):  # noqa: C901
+        # Manual stop should prevent schedule auto-restart only for the *current* window.
         if manual:
-            self._manual_stop = True
+            window_id = self._current_window_id(datetime.now())
+            if window_id is not None:
+                self._manual_stop_window_id = window_id
+
+        self._playback_source = None
+        self._manual_play_window_id = None
         if self._use_subprocess:
             # terminate subprocesses started for ALSA playback
             for p in getattr(self, "_subprocs", []):
@@ -334,26 +393,38 @@ class MP3Player:
     def play_between_times(self, start_time, end_time):
         """Run playback only between start_time and end_time (local time objects)."""
 
-        def _within_window(now):
-            if start_time == end_time:
-                # Treat matching times as "always on"
-                return True
-            if start_time < end_time:
-                return start_time <= now < end_time
-            # Window wraps past midnight
-            return now >= start_time or now < end_time
+        self._schedule_start_time = start_time
+        self._schedule_end_time = end_time
 
         def _run():
             while True:
-                now = datetime.now().time()
-                if self._manual_stop:
-                    if self._playing:
+                now_dt = datetime.now()
+                window_id = self._current_window_id(now_dt)
+
+                if window_id is None:
+                    # Outside window: reset per-window state so the next window can start.
+                    self._manual_stop_window_id = None
+                    self._schedule_started_window_id = None
+
+                    # Only stop playback if the schedule started it.
+                    if self._playing and self._playback_source == "scheduled":
                         self.stop(manual=False)
-                elif _within_window(now):
-                    if not self._playing:
-                        self.play_loop()
-                elif self._playing:
-                    self.stop(manual=False)
+                    # Stop manual playback that was started inside a window.
+                    elif (
+                        self._playing and self._playback_source == "manual" and self._manual_play_window_id is not None
+                    ):
+                        self.stop(manual=False)
+                else:
+                    # Inside window: start at most once per window instance.
+                    # If a manual stop happened this window, don't auto-restart.
+                    if (
+                        not self._playing
+                        and self._playback_source != "manual"
+                        and self._schedule_started_window_id != window_id
+                        and self._manual_stop_window_id != window_id
+                    ):
+                        self.play_loop(source="scheduled")
+                        self._schedule_started_window_id = window_id
                 time.sleep(1)
 
         self._thread = threading.Thread(target=_run, daemon=True)
