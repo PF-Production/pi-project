@@ -1,6 +1,7 @@
 import os
 import platform
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -43,6 +44,8 @@ class MP3Player:
         self._pygame_channel2 = None
         self._playing = False
         self._thread = None
+        # When True, scheduled playback will not auto-start until a manual play is requested.
+        self._manual_stop = False
 
         # Normalize devices
         if audio_device is None:
@@ -235,7 +238,9 @@ class MP3Player:
                 return None
             # Use a shell loop to re-run aplay so the audio repeats.
             cmd = f"while true; do aplay -D {device} '{path}'; done"
-            return subprocess.Popen(["/bin/sh", "-c", cmd])
+            # Start in a new session so we can reliably terminate the whole process group
+            # (the shell loop *and* any aplay child process) on stop().
+            return subprocess.Popen(["/bin/sh", "-c", cmd], start_new_session=True)
 
         main_device, second_device = self.devices if isinstance(self.devices, tuple) else (self.devices, None)
 
@@ -282,21 +287,36 @@ class MP3Player:
         - On Linux with ALSA devices and `aplay` available: spawn subprocess loops for each device.
         - Otherwise: use pygame.mixer (single default output) for dev on macOS/Windows.
         """
+        # Manual play should always clear the manual stop override.
+        self._manual_stop = False
         if self._use_subprocess:
             self._start_subprocess_playback()
         else:
             self._start_pygame_playback()
 
-    def stop(self):
+    def stop(self, manual: bool = False):
+        # A manual stop should pause scheduled playback until a manual play occurs.
+        if manual:
+            self._manual_stop = True
         if self._use_subprocess:
             # terminate subprocesses started for ALSA playback
             for p in getattr(self, "_subprocs", []):
                 try:
-                    p.terminate()
-                    p.wait(timeout=1)
+                    # We spawn playback via /bin/sh -c "while true; do aplay ...; done".
+                    # Terminating only the shell can leave the child `aplay` running.
+                    # Kill the whole process group instead.
+                    try:
+                        os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+                    except Exception:
+                        p.terminate()
+
+                    p.wait(timeout=2)
                 except Exception:
                     try:
-                        p.kill()
+                        try:
+                            os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                        except Exception:
+                            p.kill()
                     except Exception:
                         pass
             self._subprocs = []
@@ -326,11 +346,14 @@ class MP3Player:
         def _run():
             while True:
                 now = datetime.now().time()
-                if _within_window(now):
+                if self._manual_stop:
+                    if self._playing:
+                        self.stop(manual=False)
+                elif _within_window(now):
                     if not self._playing:
                         self.play_loop()
                 elif self._playing:
-                    self.stop()
+                    self.stop(manual=False)
                 time.sleep(1)
 
         self._thread = threading.Thread(target=_run, daemon=True)

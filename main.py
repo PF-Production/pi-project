@@ -92,7 +92,9 @@ class RemoteControl:
         return "ok"
 
     def _handle_stop(self, parts):
-        self.player.stop()
+        # Manual stop: keep the process alive for remote control,
+        # and (if scheduling is enabled) prevent an immediate auto-restart.
+        self.player.stop(manual=True)
         return "ok"
 
     def _handle_centre(self, parts):
