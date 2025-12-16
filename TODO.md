@@ -16,3 +16,7 @@
 - [ ] Figure out how to remote into device via WiFi for onsite debugging and EQ
 - [ ] Onsite controls should only be to force playback, adjust volume or change EQ settings.
 - [ ] Figure out how to do EQ and change it remotely
+- [ ] Add remote command to download files
+- [ ] Add remote command to update playback devices
+- [ ] Setup flex URL for downloading latest playback files - can update files but keep URL the same
+- [ ] Figure out how to hardlock playback for USB devices so doesn't change on power cycle but creating a udev rules as part of the config setup process. Otherwise ports are assigned dynamically and may change on reboot.
