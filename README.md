@@ -150,8 +150,14 @@ just download
 Settings are saved in `.env.local` with the following variables:
 
 ```bash
-AUDIO_DEVICE_1=hw:0,0           # Main output device (centre channel)
-AUDIO_DEVICE_2=hw:1,0           # Secondary output device (stereo channel)
+# Use stable device names (recommended) - these don't change on reboot
+AUDIO_DEVICE_1=plughw:CARD=Headphones,DEV=0   # Main output device (centre channel)
+AUDIO_DEVICE_2=plughw:CARD=Device,DEV=0       # Secondary output device (stereo channel)
+
+# Alternative: numeric hw:X,Y format (may change on reboot!)
+# AUDIO_DEVICE_1=hw:0,0
+# AUDIO_DEVICE_2=hw:1,0
+
 CENTRE_LEFT_VOLUME=0.5          # Centre channel left volume (0.0-1.0)
 CENTRE_RIGHT_VOLUME=0.5         # Centre channel right volume (0.0-1.0)
 STEREO_LEFT_VOLUME=0.5          # Stereo channel left volume (0.0-1.0)
@@ -176,6 +182,10 @@ Use `just configure` to set these interactively, or edit `.env.local` directly.
 You can also pass device and volume settings via CLI arguments:
 
 ```bash
+# Using stable device names (recommended)
+uv run main.py --device1 "plughw:CARD=Headphones,DEV=0" --device2 "plughw:CARD=Device,DEV=0" --volume 0.7 --second-volume 0.5
+
+# Using numeric indices (may change on reboot)
 uv run main.py --device1 hw:0,0 --device2 hw:1,0 --volume 0.7 --second-volume 0.5
 ```
 
@@ -201,7 +211,19 @@ Find available devices on Raspberry Pi:
 aplay -l
 ```
 
-The output shows device names like `hw:0,0`, `hw:1,0`, etc. Use these device IDs with the configuration wizard or pass them directly.
+The output shows device cards with both names and numbers:
+
+```bash
+card 0: Headphones [bcm2835 Headphones], device 0: bcm2835 Headphones [bcm2835 Headphones]
+card 1: Device [USB Audio Device], device 0: USB Audio [USB Audio]
+```
+
+**Use stable device names** to avoid issues when card numbers change on reboot:
+
+- `plughw:CARD=Headphones,DEV=0` instead of `hw:0,0`
+- `plughw:CARD=Device,DEV=0` instead of `hw:1,0`
+
+The configuration wizard (`just config`) automatically uses the stable format.
 
 #### Volume Control on Raspberry Pi
 

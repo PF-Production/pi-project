@@ -10,7 +10,11 @@ from pathlib import Path
 
 
 def get_alsa_devices():
-    """Get available ALSA audio devices."""
+    """Get available ALSA audio devices with stable names.
+
+    Returns devices using 'plughw:CARD=<name>' format which is stable across reboots,
+    unlike 'hw:X,Y' format where card numbers can change.
+    """
     devices = {}
     try:
         result = subprocess.run(
@@ -22,11 +26,27 @@ def get_alsa_devices():
         if result.returncode == 0:
             for line in result.stdout.split("\n"):
                 if line.startswith("card"):
+                    # Parse lines like:
+                    # "card 0: Headphones [bcm2835 Headphones], device 0: bcm2835 Headphones [bcm2835 Headphones]"
+                    # "card 1: Device [USB Audio Device], device 0: USB Audio [USB Audio]"
                     parts = line.split(":")
-                    if len(parts) >= 3:
+                    if len(parts) >= 2:
                         card_num = parts[0].split()[1]
-                        name = ":".join(parts[1:]).strip()
-                        devices[f"hw:{card_num},0"] = name
+                        # Extract card name from the bracket after colon
+                        # e.g., "Headphones [bcm2835 Headphones]" -> "Headphones"
+                        card_info = parts[1].strip()
+                        if " [" in card_info:
+                            card_name = card_info.split(" [")[0].strip()
+                        else:
+                            card_name = card_info.split(",")[0].strip()
+
+                        # Use plughw:CARD=<name> for stable device identification
+                        # This survives reboots unlike hw:X,Y which can change
+                        stable_id = f"plughw:CARD={card_name},DEV=0"
+                        description = ":".join(parts[1:]).strip()
+
+                        # Also store the numeric ID for reference
+                        devices[stable_id] = f"{description} (hw:{card_num},0)"
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
@@ -167,7 +187,7 @@ def select_device(devices, device_name, current_device=None):
             if 1 <= choice_num <= len(sorted_devices):
                 return sorted_devices[choice_num - 1][0]
             elif choice_num == len(sorted_devices) + 1:
-                custom = input("Enter device string (e.g., hw:1,0 or pulse:0): ").strip()
+                custom = input("Enter device string (e.g., plughw:CARD=Headphones,DEV=0): ").strip()
                 return custom if custom else None
             elif choice_num == len(sorted_devices) + 2:
                 return None

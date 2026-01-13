@@ -136,18 +136,41 @@ class MP3Player:
         return (start_date.isoformat(), start_time.strftime("%H:%M"), end_time.strftime("%H:%M"))
 
     # --- ALSA volume helpers (best-effort using amixer) ---------------------------------
-    def _card_from_hw(self, device_str):
-        # device_str like 'hw:1,0' -> returns card index 1
-        if not device_str or not device_str.startswith("hw:"):
+    def _card_from_device(self, device_str):
+        """Extract card identifier from device string for use with amixer.
+
+        Supports both formats:
+        - 'hw:1,0' -> returns card index '1'
+        - 'plughw:CARD=Headphones,DEV=0' -> returns card name 'Headphones'
+
+        Returns string suitable for amixer -c argument, or None if invalid.
+        """
+        if not device_str:
             return None
-        try:
-            card = int(device_str.split(":")[1].split(",")[0])
-            return card
-        except Exception:
-            return None
+
+        # Handle plughw:CARD=<name> format (stable device names)
+        if "CARD=" in device_str:
+            try:
+                # Extract card name from 'plughw:CARD=Headphones,DEV=0'
+                card_part = device_str.split("CARD=")[1]
+                card_name = card_part.split(",")[0].strip()
+                return card_name
+            except Exception:
+                return None
+
+        # Handle hw:X,Y format (legacy numeric indices)
+        if device_str.startswith("hw:"):
+            try:
+                card = device_str.split(":")[1].split(",")[0]
+                return card
+            except Exception:
+                return None
+
+        return None
 
     def _try_set_mixer(self, card, control, value_str):
         # Try to set a mixer control on card using amixer; return True on success
+        # card can be a number or a card name
         try:
             cmd = ["amixer", "-c", str(card), "set", control, value_str]
             res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -159,7 +182,7 @@ class MP3Player:
         # vol_val: float 0.0..1.0 OR tuple (left_float, right_float)
         if not device:
             return False
-        card = self._card_from_hw(device)
+        card = self._card_from_device(device)
         if card is None:
             return False
 

@@ -16,7 +16,11 @@ load_dotenv(".env.local")
 
 
 def get_alsa_devices():
-    """Get available ALSA audio devices."""
+    """Get available ALSA audio devices with stable names.
+
+    Returns devices using 'plughw:CARD=<name>' format which is stable across reboots,
+    unlike 'hw:X,Y' format where card numbers can change.
+    """
     devices = {}
     try:
         # Use aplay to list devices
@@ -29,12 +33,24 @@ def get_alsa_devices():
         if result.returncode == 0:
             for line in result.stdout.split("\n"):
                 if line.startswith("card"):
-                    # Parse lines like: "card 0: ALSA [bcm2835 ALSA], device 0: bcm2835 ALSA [bcm2835]"
+                    # Parse lines like:
+                    # "card 0: Headphones [bcm2835 Headphones], device 0: bcm2835 Headphones [bcm2835 Headphones]"
+                    # "card 1: Device [USB Audio Device], device 0: USB Audio [USB Audio]"
                     parts = line.split(":")
-                    if len(parts) >= 3:
+                    if len(parts) >= 2:
                         card_num = parts[0].split()[1]
-                        name = ":".join(parts[1:]).strip()
-                        devices[f"hw:{card_num},0"] = name
+                        # Extract card name from the bracket after colon
+                        card_info = parts[1].strip()
+                        if " [" in card_info:
+                            card_name = card_info.split(" [")[0].strip()
+                        else:
+                            card_name = card_info.split(",")[0].strip()
+
+                        # Use plughw:CARD=<name> for stable device identification
+                        stable_id = f"plughw:CARD={card_name},DEV=0"
+                        description = ":".join(parts[1:]).strip()
+
+                        devices[stable_id] = f"{description} (hw:{card_num},0)"
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
