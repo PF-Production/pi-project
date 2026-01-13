@@ -278,6 +278,7 @@ Once connected, you can:
 - `sub <0-1>` – Set sub channel volume (Main Right)
 - `stereo <0-1>` – Set stereo channel volume
 - `save` – Save current volume settings to .env.local
+- `reboot` – Reboot the Raspberry Pi
 
 Schedule interaction:
 

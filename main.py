@@ -275,6 +275,16 @@ class RemoteControl:
         except Exception as e:
             return f"error: eq command failed: {e}"
 
+    def _handle_reboot(self, parts):
+        """Reboot the Raspberry Pi."""
+        try:
+            import subprocess
+            # Send response before rebooting
+            subprocess.Popen(["sudo", "reboot"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return "ok: rebooting..."
+        except Exception as e:
+            return f"error: reboot failed: {e}"
+
     def _process_command(self, command):
         parts = command.split()
         if not parts:
@@ -291,6 +301,7 @@ class RemoteControl:
             "stereo": self._handle_stereo,
             "save": self._handle_save,
             "eq": self._handle_eq,
+            "reboot": self._handle_reboot,
         }
 
         handler = handlers.get(cmd)
