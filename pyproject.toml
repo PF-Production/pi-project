@@ -17,6 +17,12 @@ dependencies = [
     "pygame>=2.6.1",
     "rust-just>=1.43.1",
     "python-dotenv>=1.0.0",
+    # scipy/numpy are installed via apt on Raspberry Pi for faster setup
+    # On other platforms, install with: uv sync --extra eq
+]
+
+[project.optional-dependencies]
+eq = [
     "scipy>=1.11.0",
     "numpy>=1.24.0",
 ]

@@ -19,7 +19,15 @@ setup:
             python3 -m pip install uv; \
         fi; \
     fi
-    uv sync
+    @if command -v apt-get &> /dev/null; then \
+        echo "Installing Raspberry Pi dependencies (including pre-built numpy/scipy)..."; \
+        sudo apt-get update; \
+        sudo apt-get install -y python3-dev python3-numpy python3-scipy libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev libjpeg-dev pkg-config alsa-utils; \
+        echo "Using system numpy/scipy to avoid slow compilation..."; \
+        uv sync --system-site-packages; \
+    else \
+        uv sync; \
+    fi
     uv pip install ruff
     @if ! [ -f .env.local ]; then \
         echo "Creating .env.local from template..."; \
@@ -32,11 +40,6 @@ setup:
         uv run scripts/download_files.py || echo "Note: Download failed. Please manually populate .env.local with URLs and run 'just download'"; \
     else \
         echo "Audio files already exist, skipping download"; \
-    fi
-    @if command -v apt-get &> /dev/null; then \
-        echo "Installing Raspberry Pi dependencies..."; \
-        sudo apt-get update; \
-        sudo apt-get install -y python3-dev libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev libjpeg-dev pkg-config alsa-utils libatlas-base-dev libopenblas-dev; \
     fi
     @echo "✓ Setup complete"
 

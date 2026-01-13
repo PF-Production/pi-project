@@ -7,23 +7,28 @@ name = "karla-bidi-playback"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [
-    { name = "numpy" },
     { name = "pydub" },
     { name = "pygame" },
     { name = "python-dotenv" },
     { name = "rust-just" },
+]
+
+[package.optional-dependencies]
+eq = [
+    { name = "numpy" },
     { name = "scipy" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "numpy", specifier = ">=1.24.0" },
+    { name = "numpy", marker = "extra == 'eq'", specifier = ">=1.24.0" },
     { name = "pydub", specifier = ">=0.25.1" },
     { name = "pygame", specifier = ">=2.6.1" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rust-just", specifier = ">=1.43.1" },
-    { name = "scipy", specifier = ">=1.11.0" },
+    { name = "scipy", marker = "extra == 'eq'", specifier = ">=1.11.0" },
 ]
+provides-extras = ["eq"]
 
 [[package]]
 name = "numpy"
