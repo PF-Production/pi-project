@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 
 import pygame
 
+from eq_processor import load_eq_from_env
+
 
 class MP3Player:
     def __init__(
@@ -22,6 +24,8 @@ class MP3Player:
         main_right_volume=None,
         second_left_volume=None,
         second_right_volume=None,
+        centre_eq=None,
+        stereo_eq=None,
     ):
         # audio_device may be:
         #  - None -> use default OS audio (pygame)
@@ -39,6 +43,15 @@ class MP3Player:
         self.main_right_volume = main_right_volume if main_right_volume is not None else volume
         self.second_left_volume = second_left_volume if second_left_volume is not None else second_volume
         self.second_right_volume = second_right_volume if second_right_volume is not None else second_volume
+
+        # EQ processors for each track
+        self.centre_eq = centre_eq if centre_eq is not None else load_eq_from_env("centre")
+        self.stereo_eq = stereo_eq if stereo_eq is not None else load_eq_from_env("stereo")
+
+        # Paths to EQ-processed files (None = use original)
+        self._processed_centre_path = None
+        self._processed_stereo_path = None
+        self._eq_dirty = True  # Flag to reprocess audio when EQ changes
 
         # keep reference to pygame channel for second track (dev/testing)
         self._pygame_channel2 = None
@@ -278,6 +291,9 @@ class MP3Player:
         self.stop()
         procs = []
 
+        # Get EQ-processed paths (or originals if no EQ)
+        centre_path, stereo_path = self._get_playback_paths()
+
         def start_loop_playback(path, device):
             if not path or not device:
                 return None
@@ -295,17 +311,17 @@ class MP3Player:
                 self._set_alsa_volume_for_device(main_device, self.volume)
             except Exception:
                 pass
-            p1 = start_loop_playback(self.mp3_path, main_device)
+            p1 = start_loop_playback(centre_path, main_device)
             if p1:
                 procs.append(p1)
 
         # Start second device playback
-        if self.second_path and isinstance(second_device, str):
+        if stereo_path and isinstance(second_device, str):
             try:
                 self._set_alsa_volume_for_device(second_device, self.second_volume)
             except Exception:
                 pass
-            p2 = start_loop_playback(self.second_path, second_device)
+            p2 = start_loop_playback(stereo_path, second_device)
             if p2:
                 procs.append(p2)
 
@@ -314,13 +330,16 @@ class MP3Player:
 
     def _start_pygame_playback(self):
         """Start pygame-based playback for single default output."""
-        pygame.mixer.music.load(self.mp3_path)
+        # Get EQ-processed paths (or originals if no EQ)
+        centre_path, stereo_path = self._get_playback_paths()
+
+        pygame.mixer.music.load(centre_path)
         pygame.mixer.music.play(loops=-1)
         self._playing = True
 
         # Play second track if provided (same output)
-        if self.second_path:
-            sound2 = pygame.mixer.Sound(self.second_path)
+        if stereo_path:
+            sound2 = pygame.mixer.Sound(stereo_path)
             channel2 = pygame.mixer.Channel(1)
             channel2.set_volume(self.second_volume)
             channel2.play(sound2, loops=-1)
@@ -432,3 +451,112 @@ class MP3Player:
 
     def is_playing(self):
         return self._playing
+
+    # --- EQ Methods ---
+
+    def _ensure_eq_processed(self):
+        """Process audio files with current EQ settings if needed."""
+        if not self._eq_dirty:
+            return
+
+        # Clean up old processed files
+        self._cleanup_processed_files()
+
+        # Process centre track
+        if self.mp3_path and self.centre_eq.has_active_eq():
+            try:
+                self._processed_centre_path = self.centre_eq.process_file(self.mp3_path)
+                print(f"Applied EQ to centre track: {self.centre_eq}")
+            except Exception as e:
+                print(f"Warning: Could not apply EQ to centre track: {e}")
+                self._processed_centre_path = None
+
+        # Process stereo track
+        if self.second_path and self.stereo_eq.has_active_eq():
+            try:
+                self._processed_stereo_path = self.stereo_eq.process_file(self.second_path)
+                print(f"Applied EQ to stereo track: {self.stereo_eq}")
+            except Exception as e:
+                print(f"Warning: Could not apply EQ to stereo track: {e}")
+                self._processed_stereo_path = None
+
+        self._eq_dirty = False
+
+    def _cleanup_processed_files(self):
+        """Clean up temporary processed files."""
+        for path in [self._processed_centre_path, self._processed_stereo_path]:
+            if path and path != self.mp3_path and path != self.second_path:
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                except Exception:
+                    pass
+        self._processed_centre_path = None
+        self._processed_stereo_path = None
+
+    def _get_playback_paths(self):
+        """Get the paths to use for playback (processed or original)."""
+        self._ensure_eq_processed()
+        centre_path = self._processed_centre_path or self.mp3_path
+        stereo_path = self._processed_stereo_path or self.second_path
+        return centre_path, stereo_path
+
+    def set_eq_band(self, track: str, band: int, freq: float = None, gain: float = None, width: float = None):
+        """
+        Set EQ parameters for a specific band.
+
+        Args:
+            track: "centre" or "stereo"
+            band: Band number 1-4
+            freq: Center frequency in Hz (optional)
+            gain: Gain in dB, -12 to +12 (optional)
+            width: Q factor, 0.1 to 10 (optional)
+        """
+        eq = self.centre_eq if track.lower() == "centre" else self.stereo_eq
+        band_index = band - 1  # Convert to 0-indexed
+
+        if 0 <= band_index < 4:
+            eq.set_band(band_index, freq, gain, width)
+            self._eq_dirty = True
+
+    def get_eq_band(self, track: str, band: int) -> dict:
+        """
+        Get EQ parameters for a specific band.
+
+        Args:
+            track: "centre" or "stereo"
+            band: Band number 1-4
+
+        Returns:
+            Dict with freq, gain, width or empty dict if invalid
+        """
+        eq = self.centre_eq if track.lower() == "centre" else self.stereo_eq
+        band_index = band - 1
+
+        if 0 <= band_index < 4:
+            b = eq.get_band(band_index)
+            if b:
+                return {"freq": b.frequency, "gain": b.gain, "width": b.width}
+        return {}
+
+    def get_all_eq(self, track: str) -> dict:
+        """Get all EQ bands for a track."""
+        eq = self.centre_eq if track.lower() == "centre" else self.stereo_eq
+        return eq.to_dict()
+
+    def apply_eq(self):
+        """
+        Apply current EQ settings immediately.
+        This will stop playback, reprocess files, and restart if was playing.
+        """
+        was_playing = self._playing
+        playback_source = self._playback_source
+
+        if was_playing:
+            self.stop(manual=False)
+
+        self._eq_dirty = True
+        self._ensure_eq_processed()
+
+        if was_playing:
+            self.play_loop(source=playback_source or "manual")

@@ -158,6 +158,8 @@ class RemoteControl:
 
     def _handle_save(self, parts):
         try:
+            from eq_processor import save_eq_to_env_dict
+
             env_path = ".env.local"
             if not os.path.exists(env_path):
                 return "error: .env.local not found"
@@ -179,6 +181,10 @@ class RemoteControl:
                 "STEREO_LEFT_VOLUME": f"{stereo_left:.2f}",
                 "STEREO_RIGHT_VOLUME": f"{stereo_right:.2f}",
             }
+
+            # Add EQ settings
+            updates.update(save_eq_to_env_dict(self.player.centre_eq, "centre"))
+            updates.update(save_eq_to_env_dict(self.player.stereo_eq, "stereo"))
 
             for line in lines:
                 key_match = False
@@ -202,6 +208,73 @@ class RemoteControl:
         except Exception as e:
             return f"error: save failed: {e}"
 
+    def _handle_eq(self, parts):
+        """
+        Handle EQ commands.
+        Syntax:
+          eq                           - Show all EQ settings
+          eq centre|stereo             - Show EQ for specific track
+          eq centre|stereo <band>      - Show specific band (1-4)
+          eq centre|stereo <band> freq|gain|width <value> - Set parameter
+          eq apply                     - Apply changes and restart playback
+        """
+        try:
+            if len(parts) == 1:
+                # Show all EQ settings
+                centre_eq = self.player.get_all_eq("centre")
+                stereo_eq = self.player.get_all_eq("stereo")
+                return f"eq: centre={centre_eq} stereo={stereo_eq}"
+
+            track = parts[1].lower()
+
+            if track == "apply":
+                self.player.apply_eq()
+                return "ok: eq applied"
+
+            if track not in ("centre", "stereo"):
+                return "error: track must be 'centre' or 'stereo'"
+
+            if len(parts) == 2:
+                # Show all bands for track
+                eq = self.player.get_all_eq(track)
+                return f"eq {track}: {eq}"
+
+            band = int(parts[2])
+            if band < 1 or band > 4:
+                return "error: band must be 1-4"
+
+            if len(parts) == 3:
+                # Show specific band
+                band_info = self.player.get_eq_band(track, band)
+                return f"eq {track} band{band}: freq={band_info.get('freq', 0):.0f}Hz gain={band_info.get('gain', 0):.1f}dB width={band_info.get('width', 1.0):.1f}"
+
+            if len(parts) >= 5:
+                # Set parameter: eq centre 1 gain 3.5
+                param = parts[3].lower()
+                value = float(parts[4])
+
+                if param == "freq":
+                    self.player.set_eq_band(track, band, freq=value)
+                    return f"ok: eq {track} band{band} freq={value:.0f}Hz"
+                elif param == "gain":
+                    if value < -12 or value > 12:
+                        return "error: gain must be between -12 and 12 dB"
+                    self.player.set_eq_band(track, band, gain=value)
+                    return f"ok: eq {track} band{band} gain={value:.1f}dB"
+                elif param == "width":
+                    if value < 0.1 or value > 10:
+                        return "error: width (Q) must be between 0.1 and 10"
+                    self.player.set_eq_band(track, band, width=value)
+                    return f"ok: eq {track} band{band} width={value:.1f}"
+                else:
+                    return "error: parameter must be 'freq', 'gain', or 'width'"
+
+            return "error: invalid eq command syntax"
+        except ValueError as e:
+            return f"error: invalid value: {e}"
+        except Exception as e:
+            return f"error: eq command failed: {e}"
+
     def _process_command(self, command):
         parts = command.split()
         if not parts:
@@ -217,6 +290,7 @@ class RemoteControl:
             "sub": self._handle_sub,
             "stereo": self._handle_stereo,
             "save": self._handle_save,
+            "eq": self._handle_eq,
         }
 
         handler = handlers.get(cmd)

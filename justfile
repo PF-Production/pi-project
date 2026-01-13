@@ -36,7 +36,7 @@ setup:
     @if command -v apt-get &> /dev/null; then \
         echo "Installing Raspberry Pi dependencies..."; \
         sudo apt-get update; \
-        sudo apt-get install -y python3-dev libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev libjpeg-dev pkg-config alsa-utils; \
+        sudo apt-get install -y python3-dev libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev libjpeg-dev pkg-config alsa-utils libatlas-base-dev libopenblas-dev; \
     fi
     @echo "✓ Setup complete"
 

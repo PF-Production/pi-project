@@ -17,10 +17,12 @@ dependencies = [
     "pygame>=2.6.1",
     "rust-just>=1.43.1",
     "python-dotenv>=1.0.0",
+    "scipy>=1.11.0",
+    "numpy>=1.24.0",
 ]
 
 [tool.setuptools]
-py-modules = ["mp3_player", "eq_mp3", "main"]
+py-modules = ["mp3_player", "eq_processor", "main"]
 
 [tool.ruff]
 line-length = 120

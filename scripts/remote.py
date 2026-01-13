@@ -27,8 +27,19 @@ def handle_command_loop(sock):
                 break
             if cmd.lower() == "help":
                 print(
-                    "Commands: status, play (start playback now), stop (stop playback now), "
-                    "centre <val>, sub <val>, stereo <val>, save"
+                    "Commands:\n"
+                    "  status              - Show playback state and volumes\n"
+                    "  play                - Start playback now\n"
+                    "  stop                - Stop playback now\n"
+                    "  centre <val>        - Set centre volume (0.0-1.0)\n"
+                    "  sub <val>           - Set sub volume (0.0-1.0)\n"
+                    "  stereo <val>        - Set stereo volume (0.0-1.0)\n"
+                    "  eq                  - Show all EQ settings\n"
+                    "  eq centre|stereo    - Show EQ for track\n"
+                    "  eq <track> <band>   - Show band 1-4\n"
+                    "  eq <track> <band> freq|gain|width <val> - Set EQ param\n"
+                    "  eq apply            - Apply EQ changes\n"
+                    "  save                - Save settings to .env.local"
                 )
                 continue
 
