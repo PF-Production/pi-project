@@ -86,6 +86,11 @@ play:
 play-now:
     uv run main.py --ignore-schedule
 
+# Restart the systemd service (after code changes)
+restart:
+    sudo systemctl restart pi-mp3.service
+    @echo "✓ Service restarted"
+
 # Connect to the running player remotely
 remote host="localhost":
     uv run scripts/remote.py {{host}}

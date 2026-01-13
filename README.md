@@ -85,6 +85,12 @@ This command:
 
 The service will now run on boot and survive power cycles. Each Pi's unique `PLAY_START_TIME` and `PLAY_END_TIME` from `.env.local` control when playback occurs.
 
+**Note:** After updating code (e.g., via `git pull`), restart the service to load changes:
+
+```bash
+just restart
+```
+
 ### 6. Remote Control
 
 Connect to the running player from another terminal:
@@ -110,6 +116,7 @@ just config    # Interactive setup wizard for devices and volumes
 just play      # Run the audio player. Run `just play-now` to ignore schedule
 just download  # Download audio files specified in .env.local
 just install-service # Install systemd service on Raspberry Pi
+just restart   # Restart the service after code changes
 just remote    # Connect to running player via TCP
 just enable-ssh # Enable SSH on Raspberry Pi
 just ip        # Show network IP address
