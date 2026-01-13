@@ -23,8 +23,9 @@ setup:
         echo "Installing Raspberry Pi dependencies (including pre-built numpy/scipy)..."; \
         sudo apt-get update; \
         sudo apt-get install -y python3-dev python3-numpy python3-scipy libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev libjpeg-dev pkg-config alsa-utils; \
-        echo "Using system numpy/scipy to avoid slow compilation..."; \
-        uv sync --system-site-packages; \
+        echo "Creating venv with access to system numpy/scipy..."; \
+        uv venv --system-site-packages; \
+        uv sync; \
     else \
         uv sync; \
     fi
