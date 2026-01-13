@@ -168,6 +168,24 @@ class MP3Player:
 
         return None
 
+    def _get_mixer_controls(self, card):
+        """Get available mixer controls for a card using amixer."""
+        try:
+            cmd = ["amixer", "-c", str(card), "scontrols"]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if res.returncode == 0:
+                controls = []
+                for line in res.stdout.strip().split("\n"):
+                    # Parse lines like: Simple mixer control 'Radial USB Pro Output',0
+                    if "'" in line:
+                        start = line.index("'") + 1
+                        end = line.index("'", start)
+                        controls.append(line[start:end])
+                return controls
+        except (FileNotFoundError, ValueError):
+            pass
+        return []
+
     def _try_set_mixer(self, card, control, value_str):
         # Try to set a mixer control on card using amixer; return True on success
         # card can be a number or a card name
@@ -194,13 +212,32 @@ class MP3Player:
             percent = int(max(0.0, min(1.0, vol_val)) * 100)
             value_str = f"{percent}%"
 
-        # common control names to try
+        # Try common control names first
         for control in ("Master", "PCM", "Digital", "Speaker", "Headphone"):
             ok = self._try_set_mixer(card, control, value_str)
             if ok:
-                # success
                 return True
-        # nothing worked
+
+        # If standard controls failed, try to detect available controls
+        # This handles USB audio devices with custom control names
+        available_controls = self._get_mixer_controls(card)
+        for control in available_controls:
+            # Skip controls we already tried
+            if control in ("Master", "PCM", "Digital", "Speaker", "Headphone"):
+                continue
+            # Prefer controls with "Output" or "Playback" in the name
+            if "Output" in control or "Playback" in control or "Volume" in control:
+                ok = self._try_set_mixer(card, control, value_str)
+                if ok:
+                    return True
+
+        # Last resort: try any remaining control
+        for control in available_controls:
+            if control not in ("Master", "PCM", "Digital", "Speaker", "Headphone"):
+                ok = self._try_set_mixer(card, control, value_str)
+                if ok:
+                    return True
+
         return False
 
     def set_volume(self, volume):
