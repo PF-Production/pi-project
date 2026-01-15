@@ -201,21 +201,35 @@ class EQProcessor:
         return f"EQProcessor({bands_str})"
 
 
-def load_eq_from_env(track: str = "centre") -> EQProcessor:
+def load_eq_from_env(track: str = "vox") -> EQProcessor:
     """
     Load EQ settings from environment variables.
 
     Args:
-        track: "centre" or "stereo"
+        track: "vox", "sub", "surround", or "sum" (also accepts legacy "centre"/"stereo")
 
     Returns:
         Configured EQProcessor
     """
+    # Map legacy names
+    if track.lower() == "centre":
+        track = "vox"
+    elif track.lower() == "stereo":
+        track = "surround"
+
     track_upper = track.upper()
+
+    # Default frequencies based on track type
+    if track.lower() == "sub":
+        default_freqs = [40, 80, 120, 200]
+    else:
+        default_freqs = [100, 500, 2000, 8000]
+
     bands = []
 
     for i in range(1, 5):
-        freq = float(os.getenv(f"EQ_{track_upper}_BAND{i}_FREQ", 1000))
+        default_freq = default_freqs[i - 1]
+        freq = float(os.getenv(f"EQ_{track_upper}_BAND{i}_FREQ", default_freq))
         gain = float(os.getenv(f"EQ_{track_upper}_BAND{i}_GAIN", 0))
         width = float(os.getenv(f"EQ_{track_upper}_BAND{i}_WIDTH", 1.0))
         bands.append(EQBand(freq, gain, width))
@@ -223,13 +237,13 @@ def load_eq_from_env(track: str = "centre") -> EQProcessor:
     return EQProcessor(bands)
 
 
-def save_eq_to_env_dict(eq: EQProcessor, track: str = "centre") -> dict:
+def save_eq_to_env_dict(eq: EQProcessor, track: str = "vox") -> dict:
     """
     Generate environment variable dict for EQ settings.
 
     Args:
         eq: EQProcessor instance
-        track: "centre" or "stereo"
+        track: "vox", "sub", "surround", or "sum"
 
     Returns:
         Dictionary of env var name -> value

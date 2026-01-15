@@ -80,10 +80,21 @@ class RemoteControl:
     def _handle_status(self, parts):
         try:
             state = "playing" if self.player.is_playing() else "stopped"
-            centre = getattr(self.player, "main_left_volume", 0.5)
-            sub = getattr(self.player, "main_right_volume", 0.5)
-            stereo = getattr(self.player, "second_volume", 0.5)
-            return f"status: {state} centre={centre:.2f} sub={sub:.2f} stereo={stereo:.2f}"
+            mode = getattr(self.player, "playback_mode", "4ch")
+
+            if mode == "2ch":
+                sum_l = getattr(self.player, "sum_left_volume", 0.5)
+                sum_r = getattr(self.player, "sum_right_volume", 0.5)
+                return f"status: {state} mode={mode} sum_l={sum_l:.2f} sum_r={sum_r:.2f}"
+            else:
+                vox = getattr(self.player, "vox_volume", 0.5)
+                sub = getattr(self.player, "sub_volume", 0.5)
+                surround_l = getattr(self.player, "surround_left_volume", 0.5)
+                surround_r = getattr(self.player, "surround_right_volume", 0.5)
+                return (
+                    f"status: {state} mode={mode} vox={vox:.2f} sub={sub:.2f} "
+                    f"surround_l={surround_l:.2f} surround_r={surround_r:.2f}"
+                )
         except Exception as e:
             return f"error: status failed {e}"
 
@@ -97,25 +108,29 @@ class RemoteControl:
         self.player.stop(manual=True)
         return "ok"
 
-    def _handle_centre(self, parts):
+    def _handle_vox(self, parts):
+        """Handle vox (centre speaker) volume command."""
         try:
             if len(parts) > 1:
                 vol = float(parts[1])
                 if vol < 0.0 or vol > 1.0:
                     return "error: volume must be between 0.0 and 1.0"
-                right_vol = getattr(self.player, "main_right_volume", 0.5)
-                self.player.set_main_channel_volumes(vol, right_vol)
-                return f"ok: centre={vol:.2f}"
-            left_vol = getattr(self.player, "main_left_volume", 0.5)
-            return f"centre: {left_vol:.2f}"
+                self.player.set_vox_volume(vol)
+                return f"ok: vox={vol:.2f}"
+            vox_vol = getattr(self.player, "vox_volume", 0.5)
+            return f"vox: {vox_vol:.2f}"
         except ValueError as e:
             return f"error: invalid volume value: {e}"
         except Exception as e:
-            print(f"Unexpected error in _handle_centre: {e}")
+            print(f"Unexpected error in _handle_vox: {e}")
             import traceback
 
             traceback.print_exc()
             return f"error: {e}"
+
+    def _handle_centre(self, parts):
+        """Handle centre command (alias for vox)."""
+        return self._handle_vox(parts)
 
     def _handle_sub(self, parts):
         try:
@@ -123,11 +138,10 @@ class RemoteControl:
                 vol = float(parts[1])
                 if vol < 0.0 or vol > 1.0:
                     return "error: volume must be between 0.0 and 1.0"
-                left_vol = getattr(self.player, "main_left_volume", 0.5)
-                self.player.set_main_channel_volumes(left_vol, vol)
+                self.player.set_sub_volume(vol)
                 return f"ok: sub={vol:.2f}"
-            right_vol = getattr(self.player, "main_right_volume", 0.5)
-            return f"sub: {right_vol:.2f}"
+            sub_vol = getattr(self.player, "sub_volume", 0.5)
+            return f"sub: {sub_vol:.2f}"
         except ValueError as e:
             return f"error: invalid volume value: {e}"
         except Exception as e:
@@ -137,17 +151,51 @@ class RemoteControl:
             traceback.print_exc()
             return f"error: {e}"
 
-    def _handle_stereo(self, parts):
+    def _handle_surround(self, parts):
+        """Handle surround (instruments) volume command."""
         try:
             if len(parts) > 1:
                 vol = float(parts[1])
                 if vol < 0.0 or vol > 1.0:
                     return "error: volume must be between 0.0 and 1.0"
-                self.player.set_second_volume(vol)
-                return f"ok: stereo={vol:.2f}"
-            stereo_vol = getattr(self.player, "second_volume", 0.5)
-            return f"stereo: {stereo_vol:.2f}"
+                self.player.set_surround_volumes(vol, vol)
+                return f"ok: surround={vol:.2f}"
+            surround_l = getattr(self.player, "surround_left_volume", 0.5)
+            surround_r = getattr(self.player, "surround_right_volume", 0.5)
+            return f"surround: L={surround_l:.2f} R={surround_r:.2f}"
         except ValueError as e:
+            return f"error: invalid volume value: {e}"
+        except Exception as e:
+            print(f"Unexpected error in _handle_surround: {e}")
+            import traceback
+
+            traceback.print_exc()
+            return f"error: {e}"
+
+    def _handle_stereo(self, parts):
+        """Handle stereo command (alias for surround)."""
+        return self._handle_surround(parts)
+
+    def _handle_sum(self, parts):
+        """Handle sum (2ch mode) volume command."""
+        try:
+            if len(parts) > 1:
+                vol = float(parts[1])
+                if vol < 0.0 or vol > 1.0:
+                    return "error: volume must be between 0.0 and 1.0"
+                self.player.set_sum_volumes(vol, vol)
+                return f"ok: sum={vol:.2f}"
+            sum_l = getattr(self.player, "sum_left_volume", 0.5)
+            sum_r = getattr(self.player, "sum_right_volume", 0.5)
+            return f"sum: L={sum_l:.2f} R={sum_r:.2f}"
+        except ValueError as e:
+            return f"error: invalid volume value: {e}"
+        except Exception as e:
+            print(f"Unexpected error in _handle_sum: {e}")
+            import traceback
+
+            traceback.print_exc()
+            return f"error: {e}"
             return f"error: invalid volume value: {e}"
         except Exception as e:
             print(f"Unexpected error in _handle_stereo: {e}")
@@ -164,10 +212,7 @@ class RemoteControl:
             if not os.path.exists(env_path):
                 return "error: .env.local not found"
 
-            centre_left = getattr(self.player, "main_left_volume", 0.5)
-            centre_right = getattr(self.player, "main_right_volume", 0.5)
-            stereo_left = getattr(self.player, "second_left_volume", 0.5)
-            stereo_right = getattr(self.player, "second_right_volume", 0.5)
+            mode = getattr(self.player, "playback_mode", "4ch")
 
             with open(env_path, "r") as f:
                 lines = f.readlines()
@@ -175,16 +220,23 @@ class RemoteControl:
             new_lines = []
             updated_keys = set()
 
-            updates = {
-                "CENTRE_LEFT_VOLUME": f"{centre_left:.2f}",
-                "CENTRE_RIGHT_VOLUME": f"{centre_right:.2f}",
-                "STEREO_LEFT_VOLUME": f"{stereo_left:.2f}",
-                "STEREO_RIGHT_VOLUME": f"{stereo_right:.2f}",
-            }
-
-            # Add EQ settings
-            updates.update(save_eq_to_env_dict(self.player.centre_eq, "centre"))
-            updates.update(save_eq_to_env_dict(self.player.stereo_eq, "stereo"))
+            # Build updates based on mode
+            if mode == "2ch":
+                updates = {
+                    "SUM_LEFT_VOLUME": f"{self.player.sum_left_volume:.2f}",
+                    "SUM_RIGHT_VOLUME": f"{self.player.sum_right_volume:.2f}",
+                }
+                updates.update(save_eq_to_env_dict(self.player.sum_eq, "sum"))
+            else:
+                updates = {
+                    "VOX_VOLUME": f"{self.player.vox_volume:.2f}",
+                    "SUB_VOLUME": f"{self.player.sub_volume:.2f}",
+                    "SURROUND_LEFT_VOLUME": f"{self.player.surround_left_volume:.2f}",
+                    "SURROUND_RIGHT_VOLUME": f"{self.player.surround_right_volume:.2f}",
+                }
+                updates.update(save_eq_to_env_dict(self.player.vox_eq, "vox"))
+                updates.update(save_eq_to_env_dict(self.player.sub_eq, "sub"))
+                updates.update(save_eq_to_env_dict(self.player.surround_eq, "surround"))
 
             for line in lines:
                 key_match = False
@@ -208,22 +260,30 @@ class RemoteControl:
         except Exception as e:
             return f"error: save failed: {e}"
 
-    def _handle_eq(self, parts):
+    def _handle_eq(self, parts):  # noqa: C901
         """
         Handle EQ commands.
         Syntax:
           eq                           - Show all EQ settings
-          eq centre|stereo             - Show EQ for specific track
-          eq centre|stereo <band>      - Show specific band (1-4)
-          eq centre|stereo <band> freq|gain|width <value> - Set parameter
+          eq vox|sub|surround|sum      - Show EQ for specific track
+          eq <track> <band>            - Show specific band (1-4)
+          eq <track> <band> freq|gain|width <value> - Set parameter
           eq apply                     - Apply changes and restart playback
         """
         try:
+            valid_tracks = ("vox", "sub", "surround", "sum", "centre", "stereo")
+
             if len(parts) == 1:
-                # Show all EQ settings
-                centre_eq = self.player.get_all_eq("centre")
-                stereo_eq = self.player.get_all_eq("stereo")
-                return f"eq: centre={centre_eq} stereo={stereo_eq}"
+                # Show all EQ settings based on mode
+                mode = getattr(self.player, "playback_mode", "4ch")
+                if mode == "2ch":
+                    sum_eq = self.player.get_all_eq("sum")
+                    return f"eq (2ch mode): sum={sum_eq}"
+                else:
+                    vox_eq = self.player.get_all_eq("vox")
+                    sub_eq = self.player.get_all_eq("sub")
+                    surround_eq = self.player.get_all_eq("surround")
+                    return f"eq (4ch mode): vox={vox_eq} sub={sub_eq} surround={surround_eq}"
 
             track = parts[1].lower()
 
@@ -231,8 +291,8 @@ class RemoteControl:
                 self.player.apply_eq()
                 return "ok: eq applied"
 
-            if track not in ("centre", "stereo"):
-                return "error: track must be 'centre' or 'stereo'"
+            if track not in valid_tracks:
+                return f"error: track must be one of {valid_tracks}"
 
             if len(parts) == 2:
                 # Show all bands for track
@@ -246,10 +306,13 @@ class RemoteControl:
             if len(parts) == 3:
                 # Show specific band
                 band_info = self.player.get_eq_band(track, band)
-                return f"eq {track} band{band}: freq={band_info.get('freq', 0):.0f}Hz gain={band_info.get('gain', 0):.1f}dB width={band_info.get('width', 1.0):.1f}"
+                freq = band_info.get("freq", 0)
+                gain = band_info.get("gain", 0)
+                width = band_info.get("width", 1.0)
+                return f"eq {track} band{band}: freq={freq:.0f}Hz gain={gain:.1f}dB width={width:.1f}"
 
             if len(parts) >= 5:
-                # Set parameter: eq centre 1 gain 3.5
+                # Set parameter: eq vox 1 gain 3.5
                 param = parts[3].lower()
                 value = float(parts[4])
 
@@ -279,6 +342,7 @@ class RemoteControl:
         """Reboot the Raspberry Pi."""
         try:
             import subprocess
+
             # Send response before rebooting
             subprocess.Popen(["sudo", "reboot"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return "ok: rebooting..."
@@ -296,9 +360,12 @@ class RemoteControl:
             "status": self._handle_status,
             "play": self._handle_play,
             "stop": self._handle_stop,
+            "vox": self._handle_vox,
             "centre": self._handle_centre,
             "sub": self._handle_sub,
+            "surround": self._handle_surround,
             "stereo": self._handle_stereo,
+            "sum": self._handle_sum,
             "save": self._handle_save,
             "eq": self._handle_eq,
             "reboot": self._handle_reboot,
@@ -337,18 +404,15 @@ def _get_audio_device(args):
     return None
 
 
-def _get_volumes(args):
-    # Load volumes from environment or use defaults
-    main_volume = args.volume or float(os.getenv("CENTRE_LEFT_VOLUME", 0.5))
-    second_volume = args.second_volume or float(os.getenv("STEREO_LEFT_VOLUME", 0.5))
-
+def _get_volumes():
+    """Load volumes from environment variables."""
     return {
-        "main": main_volume,
-        "second": second_volume,
-        "centre_left": float(os.getenv("CENTRE_LEFT_VOLUME", main_volume)),
-        "centre_right": float(os.getenv("CENTRE_RIGHT_VOLUME", main_volume)),
-        "stereo_left": float(os.getenv("STEREO_LEFT_VOLUME", second_volume)),
-        "stereo_right": float(os.getenv("STEREO_RIGHT_VOLUME", second_volume)),
+        "vox": float(os.getenv("VOX_VOLUME", 0.5)),
+        "sub": float(os.getenv("SUB_VOLUME", 0.5)),
+        "surround_left": float(os.getenv("SURROUND_LEFT_VOLUME", 0.5)),
+        "surround_right": float(os.getenv("SURROUND_RIGHT_VOLUME", 0.5)),
+        "sum_left": float(os.getenv("SUM_LEFT_VOLUME", 0.5)),
+        "sum_right": float(os.getenv("SUM_RIGHT_VOLUME", 0.5)),
     }
 
 
@@ -378,10 +442,9 @@ def _handle_scheduling(player, args):
 
 def main():
     parser = argparse.ArgumentParser(description="Run MP3Player with optional device args")
-    parser.add_argument("--device1", help="ALSA hw device for centre track (e.g. hw:1,0)", default=None)
-    parser.add_argument("--device2", help="ALSA hw device for stereo track (e.g. hw:2,0)", default=None)
-    parser.add_argument("--volume", type=float, help="Main track volume 0.0-1.0", default=None)
-    parser.add_argument("--second-volume", type=float, help="Second track volume 0.0-1.0", default=None)
+    parser.add_argument("--device1", help="ALSA hw device for vox/sub track (e.g. hw:1,0)", default=None)
+    parser.add_argument("--device2", help="ALSA hw device for surround track (e.g. hw:2,0)", default=None)
+    parser.add_argument("--mode", choices=["2ch", "4ch"], help="Playback mode (2ch or 4ch)", default=None)
     parser.add_argument(
         "--ignore-schedule",
         action="store_true",
@@ -391,19 +454,25 @@ def main():
 
     print("Hello from Karla Bidi playback!")
 
+    # Get playback mode from args or env
+    playback_mode = args.mode or os.getenv("PLAYBACK_MODE", "4ch")
+    print(f"Playback mode: {playback_mode}")
+
     audio_device = _get_audio_device(args)
-    volumes = _get_volumes(args)
+    volumes = _get_volumes()
 
     player = MP3Player(
-        "./files/centre.wav",
-        second_path="./files/stereo.wav",
-        volume=volumes["main"],
+        playback_mode=playback_mode,
+        sum_path="./files/sum.wav",
+        instruments_path="./files/instruments.wav",
+        vox_sub_path="./files/vox_sub.wav",
         audio_device=audio_device,
-        second_volume=volumes["second"],
-        main_left_volume=volumes["centre_left"],
-        main_right_volume=volumes["centre_right"],
-        second_left_volume=volumes["stereo_left"],
-        second_right_volume=volumes["stereo_right"],
+        vox_volume=volumes["vox"],
+        sub_volume=volumes["sub"],
+        surround_left_volume=volumes["surround_left"],
+        surround_right_volume=volumes["surround_right"],
+        sum_left_volume=volumes["sum_left"],
+        sum_right_volume=volumes["sum_right"],
     )
 
     _setup_remote(player)

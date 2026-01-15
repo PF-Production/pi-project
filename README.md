@@ -1,20 +1,32 @@
 # Pi Project
 
-A Python audio playback application for Raspberry Pi with multi-device output support. Routes two audio stereo audio files to two separate hardware outputs with independent volume control per channel. Playback is looped.
+A Python audio playback application for Raspberry Pi with multi-device output support. Supports two playback modes with independent volume and EQ control per channel. Playback is looped.
 
-Made to create immersive soundscapes using multiple speakers connected to a single Raspberry Pi. The centre audio file plays to two output devices (for centre and sub channels) while the stereo audio file plays to a second output device (for left/right surround channels). The devices are names as follows:
+Made to create immersive soundscapes using multiple speakers connected to a single Raspberry Pi.
 
-- Centre L -> Centre Channel
-- Centre R -> Sub Channel
-- Stereo L -> Surround Left Channel
-- Stereo R -> Surround Right Channel
+## Playback Modes
+
+### 4-Channel Mode (default)
+
+Uses 2 stereo audio files routed to 2 separate hardware outputs:
+
+- **vox_sub.wav**: L channel → Vox (centre speaker), R channel → Sub
+- **instruments.wav**: L channel → Surround Left, R channel → Surround Right
+
+### 2-Channel Mode
+
+Uses a single stereo file for simple L/R playback:
+
+- **sum.wav**: Full stereo mix to a single output device
 
 ## Features
 
 - **Multi-output support**: Route different audio streams to separate ALSA devices on Raspberry Pi
-- **Per-channel volume control**: Adjust left/right volumes independently for each output
+- **2ch/4ch modes**: Switch between full mix stereo or split 4-channel surround
+- **Per-channel volume control**: Adjust Vox, Sub, Surround L/R independently
+- **Per-channel EQ**: 4-band parametric EQ for each channel (vox, sub, surround, sum)
 - **Easy configuration**: Interactive setup wizard to detect and configure audio devices
-- **Remote Control**: Control playback and volume remotely via TCP
+- **Remote Control**: Control playback, volume, and EQ remotely via TCP
 - **Cross-platform**: Works on Raspberry Pi (ALSA) and macOS (pygame)
 - **Simple deployment**: Just one command to set up everything
 
@@ -53,9 +65,9 @@ just config
 
 This interactive wizard lets you:
 
+- Select playback mode (2ch or 4ch)
 - Select which audio device to use for each output
-- Set volume levels for centre sound file `(left - i.e. centre) / right - i.e. sub)`
-- Set volume levels for stereo sound file `(left/right)`
+- Set volume levels for each channel (Vox, Sub, Surround L/R or Sum L/R)
 - Define daily start/stop times for playback using the Pi's internal clock
 - Configure a remote control port
 - Save configuration to `.env.local`
@@ -132,18 +144,16 @@ just clean     # Remove build artifacts and cache files
 
 The project expects audio files in the `files/` directory:
 
-- `files/centre.wav` – Centre channel audio (mono content, same in both channels)
-- `files/stereo.wav` – Stereo audio (independent left and right channels)
-
-**Note:** Both files are stereo WAV files. The "centre" file contains the same audio in both channels, while the "stereo" file contains independent left and right content.
+- `files/sum.wav` – Full stereo mix (used in 2ch mode)
+- `files/instruments.wav` – L-R instruments/surround (used in 4ch mode)
+- `files/vox_sub.wav` – L=Vox (centre speaker), R=Sub (used in 4ch mode)
 
 To download files automatically, populate `.env.local` with URLs:
 
 ```bash
-WAV_CENTRE_URL=https://example.com/centre.wav
-WAV_STEREO_URL=https://example.com/stereo.wav
-MP3_CENTRE_URL=https://example.com/centre.mp3
-MP3_STEREO_URL=https://example.com/stereo.mp3
+WAV_SUM_URL=https://example.com/sum.wav
+WAV_INSTRUMENTS_URL=https://example.com/instruments.wav
+WAV_VOX_SUB_URL=https://example.com/vox_sub.wav
 ```
 
 Then run:
@@ -157,21 +167,27 @@ just download
 Settings are saved in `.env.local` with the following variables:
 
 ```bash
+# Playback mode: "2ch" or "4ch"
+PLAYBACK_MODE=4ch
+
 # Use stable device names (recommended) - these don't change on reboot
-AUDIO_DEVICE_1=plughw:CARD=Headphones,DEV=0   # Main output device (centre channel)
-AUDIO_DEVICE_2=plughw:CARD=Device,DEV=0       # Secondary output device (stereo channel)
+AUDIO_DEVICE_1=plughw:CARD=Headphones,DEV=0   # Device 1 (vox+sub in 4ch, sum in 2ch)
+AUDIO_DEVICE_2=plughw:CARD=Device,DEV=0       # Device 2 (surround in 4ch mode)
 
-# Alternative: numeric hw:X,Y format (may change on reboot!)
-# AUDIO_DEVICE_1=hw:0,0
-# AUDIO_DEVICE_2=hw:1,0
+# 4ch mode volumes (0.0-1.0)
+VOX_VOLUME=0.5              # Vox (centre speaker) volume
+SUB_VOLUME=0.5              # Sub volume
+SURROUND_LEFT_VOLUME=0.5    # Surround left volume
+SURROUND_RIGHT_VOLUME=0.5   # Surround right volume
 
-CENTRE_LEFT_VOLUME=0.5          # Centre channel left volume (0.0-1.0)
-CENTRE_RIGHT_VOLUME=0.5         # Centre channel right volume (0.0-1.0)
-STEREO_LEFT_VOLUME=0.5          # Stereo channel left volume (0.0-1.0)
-STEREO_RIGHT_VOLUME=0.5         # Stereo channel right volume (0.0-1.0)
-PLAY_START_TIME=08:00           # Optional local start time (HH:MM, 24h)
-PLAY_END_TIME=18:00             # Optional local stop time  (HH:MM, 24h)
-REMOTE_PORT=5000                # TCP port for remote control (0 to disable)
+# 2ch mode volumes (0.0-1.0)
+SUM_LEFT_VOLUME=0.5         # Sum left volume
+SUM_RIGHT_VOLUME=0.5        # Sum right volume
+
+# Schedule
+PLAY_START_TIME=08:00       # Optional local start time (HH:MM, 24h)
+PLAY_END_TIME=18:00         # Optional local stop time  (HH:MM, 24h)
+REMOTE_PORT=5000            # TCP port for remote control (0 to disable)
 ```
 
 Use `just configure` to set these interactively, or edit `.env.local` directly.
@@ -186,14 +202,17 @@ Use `just configure` to set these interactively, or edit `.env.local` directly.
 
 ### Command-Line Arguments
 
-You can also pass device and volume settings via CLI arguments:
+You can also pass device and mode settings via CLI arguments:
 
 ```bash
-# Using stable device names (recommended)
-uv run main.py --device1 "plughw:CARD=Headphones,DEV=0" --device2 "plughw:CARD=Device,DEV=0" --volume 0.7 --second-volume 0.5
+# 4ch mode with specific devices
+uv run main.py --mode 4ch --device1 "plughw:CARD=Headphones,DEV=0" --device2 "plughw:CARD=Device,DEV=0"
 
-# Using numeric indices (may change on reboot)
-uv run main.py --device1 hw:0,0 --device2 hw:1,0 --volume 0.7 --second-volume 0.5
+# 2ch mode
+uv run main.py --mode 2ch --device1 "plughw:CARD=Headphones,DEV=0"
+
+# Ignore schedule and start immediately
+uv run main.py --ignore-schedule
 ```
 
 ### Technical Details
@@ -249,15 +268,17 @@ amixer -c 1 set Master 60%
 Runtime volume adjustments:
 
 ```python
-# set main device to 60%
-player.set_volume(0.6)
+# set vox (centre speaker) volume
+player.set_vox_volume(0.6)
 
-# set second device to 20%
-player.set_second_volume(0.2)
+# set sub volume
+player.set_sub_volume(0.5)
 
-# set independent left/right volumes
-player.set_main_channel_volumes(left_volume=0.6, right_volume=0.7)
-player.set_second_channel_volumes(left_volume=0.5, right_volume=0.4)
+# set surround volumes
+player.set_surround_volumes(left_volume=0.5, right_volume=0.5)
+
+# set sum volumes (2ch mode)
+player.set_sum_volumes(left_volume=0.6, right_volume=0.6)
 ```
 
 ### Remote Control
@@ -271,13 +292,18 @@ just remote <PI_IP_ADDRESS>
 
 Once connected, you can:
 
-- `status` – Check if playing and current volumes
-- `play` – Start playback immediately (does not change the configured schedule)
-- `stop` – Stop playback immediately (does not change the configured schedule)
-- `centre <0-1>` – Set centre channel volume (Main Left)
-- `sub <0-1>` – Set sub channel volume (Main Right)
-- `stereo <0-1>` – Set stereo channel volume
-- `save` – Save current volume settings to .env.local
+- `status` – Check if playing, mode, and current volumes
+- `play` – Start playback immediately
+- `stop` – Stop playback immediately
+- `vox <0-1>` – Set vox (centre speaker) volume
+- `sub <0-1>` – Set sub volume
+- `surround <0-1>` – Set surround volume (both L/R)
+- `sum <0-1>` – Set sum volume (2ch mode)
+- `eq` – Show all EQ settings
+- `eq vox|sub|surround|sum` – Show EQ for specific track
+- `eq <track> <band> freq|gain|width <value>` – Set EQ parameter
+- `eq apply` – Apply EQ changes
+- `save` – Save current settings to .env.local
 - `reboot` – Reboot the Raspberry Pi
 
 Schedule interaction:

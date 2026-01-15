@@ -267,33 +267,64 @@ def main():
         print("  You can still enter custom device strings manually")
 
     # Get current configuration - read directly from file to ensure fresh values
+    current_mode = get_env_value("PLAYBACK_MODE", "4ch")
     current_device1 = get_env_value("AUDIO_DEVICE_1")
     current_device2 = get_env_value("AUDIO_DEVICE_2")
-    current_centre_left = float(get_env_value("CENTRE_LEFT_VOLUME", "0.5"))
-    current_centre_right = float(get_env_value("CENTRE_RIGHT_VOLUME", "0.5"))
-    current_stereo_left = float(get_env_value("STEREO_LEFT_VOLUME", "0.5"))
-    current_stereo_right = float(get_env_value("STEREO_RIGHT_VOLUME", "0.5"))
+    current_vox = float(get_env_value("VOX_VOLUME", "0.5"))
+    current_sub = float(get_env_value("SUB_VOLUME", "0.5"))
+    current_surround_left = float(get_env_value("SURROUND_LEFT_VOLUME", "0.5"))
+    current_surround_right = float(get_env_value("SURROUND_RIGHT_VOLUME", "0.5"))
+    current_sum_left = float(get_env_value("SUM_LEFT_VOLUME", "0.5"))
+    current_sum_right = float(get_env_value("SUM_RIGHT_VOLUME", "0.5"))
     current_start_time = get_env_value("PLAY_START_TIME")
     current_end_time = get_env_value("PLAY_END_TIME")
+
+    # Playback Mode selection
+    print_header("PLAYBACK MODE")
+    print("\n  2ch: Full stereo mix to single output (L/R)")
+    print("  4ch: Vox+Sub to device 1, Surround L+R to device 2")
+    mode_input = input(f"\n  Select mode (2ch/4ch) [{current_mode}]: ").strip().lower()
+    playback_mode = mode_input if mode_input in ("2ch", "4ch") else current_mode
 
     # Device selection
     print_header("DEVICE SELECTION")
 
-    device1 = select_device(all_devices, "Centre", current_device1)
-    device2 = select_device(all_devices, "Stereo", current_device2)
+    if playback_mode == "4ch":
+        device1 = select_device(all_devices, "Vox+Sub", current_device1)
+        device2 = select_device(all_devices, "Surround", current_device2)
+    else:
+        device1 = select_device(all_devices, "Sum (Full Mix)", current_device1)
+        device2 = None
 
     # Volume configuration
     print_header("VOLUME CONFIGURATION")
 
-    print("\nCentre Channel (mono)")
-    centre_left, centre_left_provided = get_volume_input("  Centre Left (C) volume (0.0-1.0):", current_centre_left)
-    centre_right, centre_right_provided = get_volume_input(
-        "  Centre Right (Sub) volume (0.0-1.0):", current_centre_right
-    )
-
-    print("\nStereo Channel")
-    stereo_left, stereo_left_provided = get_volume_input("  Left volume (0.0-1.0):", current_stereo_left)
-    stereo_right, stereo_right_provided = get_volume_input("  Right volume (0.0-1.0):", current_stereo_right)
+    if playback_mode == "4ch":
+        print("\n4ch Mode Volumes:")
+        vox, vox_provided = get_volume_input("  Vox (Centre speaker) volume (0.0-1.0):", current_vox)
+        sub, sub_provided = get_volume_input("  Sub volume (0.0-1.0):", current_sub)
+        surround_left, surround_left_provided = get_volume_input(
+            "  Surround Left volume (0.0-1.0):", current_surround_left
+        )
+        surround_right, surround_right_provided = get_volume_input(
+            "  Surround Right volume (0.0-1.0):", current_surround_right
+        )
+        sum_left_provided = False
+        sum_right_provided = False
+        sum_left = current_sum_left
+        sum_right = current_sum_right
+    else:
+        print("\n2ch Mode Volumes:")
+        sum_left, sum_left_provided = get_volume_input("  Sum Left volume (0.0-1.0):", current_sum_left)
+        sum_right, sum_right_provided = get_volume_input("  Sum Right volume (0.0-1.0):", current_sum_right)
+        vox_provided = False
+        sub_provided = False
+        surround_left_provided = False
+        surround_right_provided = False
+        vox = current_vox
+        sub = current_sub
+        surround_left = current_surround_left
+        surround_right = current_surround_right
 
     # Schedule configuration
     print_header("PLAYBACK SCHEDULE")
@@ -311,41 +342,57 @@ def main():
     # Summary and confirmation
     print_header("CONFIGURATION SUMMARY")
 
+    print(f"\nPlayback Mode: {playback_mode}")
+
     print("\nDevice Configuration:")
-    print(f"  Device 1 (C+Sub):  {device1 or '(not set)'}")
-    print(f"  Device 2 (Stereo):  {device2 or '(not set)'}")
+    if playback_mode == "4ch":
+        print(f"  Device 1 (Vox+Sub):    {device1 or '(not set)'}")
+        print(f"  Device 2 (Surround):   {device2 or '(not set)'}")
+    else:
+        print(f"  Device 1 (Sum):        {device1 or '(not set)'}")
 
     print("\nVolume Settings:")
-    print(f"  Centre Left (C):      {centre_left:.1f}")
-    print(f"  Centre Right (Sub):   {centre_right:.1f}")
-    print(f"  Stereo Left:          {stereo_left:.1f}")
-    print(f"  Stereo Right:         {stereo_right:.1f}")
+    if playback_mode == "4ch":
+        print(f"  Vox (Centre):          {vox:.1f}")
+        print(f"  Sub:                   {sub:.1f}")
+        print(f"  Surround Left:         {surround_left:.1f}")
+        print(f"  Surround Right:        {surround_right:.1f}")
+    else:
+        print(f"  Sum Left:              {sum_left:.1f}")
+        print(f"  Sum Right:             {sum_right:.1f}")
 
     print("\nSchedule:")
-    print(f"  Start time:           {start_time or '(not set)'}")
-    print(f"  Stop time:            {end_time or '(not set)'}")
+    print(f"  Start time:            {start_time or '(not set)'}")
+    print(f"  Stop time:             {end_time or '(not set)'}")
 
     print("\nRemote Control:")
-    print(f"  Port:                 {remote_port}")
+    print(f"  Port:                  {remote_port}")
 
     confirm = input("\nSave this configuration to .env.local? (y/n): ").strip().lower()
 
     if confirm == "y":
-        config = {}
+        config = {"PLAYBACK_MODE": playback_mode}
+
         # Only include device settings if user provided them
         if device1 is not None:
             config["AUDIO_DEVICE_1"] = device1
         if device2 is not None:
             config["AUDIO_DEVICE_2"] = device2
-        # Only include volume settings if user provided them (not skipped)
-        if centre_left_provided:
-            config["CENTRE_LEFT_VOLUME"] = str(centre_left)
-        if centre_right_provided:
-            config["CENTRE_RIGHT_VOLUME"] = str(centre_right)
-        if stereo_left_provided:
-            config["STEREO_LEFT_VOLUME"] = str(stereo_left)
-        if stereo_right_provided:
-            config["STEREO_RIGHT_VOLUME"] = str(stereo_right)
+
+        # Volume settings based on mode
+        if vox_provided:
+            config["VOX_VOLUME"] = str(vox)
+        if sub_provided:
+            config["SUB_VOLUME"] = str(sub)
+        if surround_left_provided:
+            config["SURROUND_LEFT_VOLUME"] = str(surround_left)
+        if surround_right_provided:
+            config["SURROUND_RIGHT_VOLUME"] = str(surround_right)
+        if sum_left_provided:
+            config["SUM_LEFT_VOLUME"] = str(sum_left)
+        if sum_right_provided:
+            config["SUM_RIGHT_VOLUME"] = str(sum_right)
+
         if start_time_provided and start_time:
             config["PLAY_START_TIME"] = start_time
         if end_time_provided and end_time:

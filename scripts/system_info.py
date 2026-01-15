@@ -112,12 +112,15 @@ def get_current_config():
     if env_file.exists():
         load_dotenv(".env.local")
         config = {
+            "playback_mode": os.getenv("PLAYBACK_MODE", "4ch"),
             "device1": os.getenv("AUDIO_DEVICE_1"),
             "device2": os.getenv("AUDIO_DEVICE_2"),
-            "centre_left_volume": os.getenv("CENTRE_LEFT_VOLUME", "0.5"),
-            "centre_right_volume": os.getenv("CENTRE_RIGHT_VOLUME", "0.5"),
-            "stereo_left_volume": os.getenv("STEREO_LEFT_VOLUME", "0.5"),
-            "stereo_right_volume": os.getenv("STEREO_RIGHT_VOLUME", "0.5"),
+            "vox_volume": os.getenv("VOX_VOLUME", "0.5"),
+            "sub_volume": os.getenv("SUB_VOLUME", "0.5"),
+            "surround_left_volume": os.getenv("SURROUND_LEFT_VOLUME", "0.5"),
+            "surround_right_volume": os.getenv("SURROUND_RIGHT_VOLUME", "0.5"),
+            "sum_left_volume": os.getenv("SUM_LEFT_VOLUME", "0.5"),
+            "sum_right_volume": os.getenv("SUM_RIGHT_VOLUME", "0.5"),
             "start_time": os.getenv("PLAY_START_TIME"),
             "end_time": os.getenv("PLAY_END_TIME"),
         }
@@ -150,19 +153,29 @@ def main():
     config = get_current_config()
 
     if config and any(config.values()):
+        mode = config.get("playback_mode", "4ch")
+        print(f"\nPlayback Mode: {mode}")
+
         print("\nDevice Configuration:")
-        print(f"  Device 1 (C+Sub): {config.get('device1', '(not set)')}")
-        print(f"  Device 2 (Stereo): {config.get('device2', '(not set)')}")
+        if mode == "4ch":
+            print(f"  Device 1 (Vox+Sub):    {config.get('device1') or '(not set)'}")
+            print(f"  Device 2 (Surround):   {config.get('device2') or '(not set)'}")
+        else:
+            print(f"  Device 1 (Sum):        {config.get('device1') or '(not set)'}")
 
         print("\nVolume Settings:")
-        print(f"  Centre Left (C):      {config.get('centre_left_volume', '(not set)')}")
-        print(f"  Centre Right (Sub):   {config.get('centre_right_volume', '(not set)')}")
-        print(f"  Stereo Left:          {config.get('stereo_left_volume', '(not set)')}")
-        print(f"  Stereo Right:         {config.get('stereo_right_volume', '(not set)')}")
+        if mode == "4ch":
+            print(f"  Vox (Centre):          {config.get('vox_volume', '(not set)')}")
+            print(f"  Sub:                   {config.get('sub_volume', '(not set)')}")
+            print(f"  Surround Left:         {config.get('surround_left_volume', '(not set)')}")
+            print(f"  Surround Right:        {config.get('surround_right_volume', '(not set)')}")
+        else:
+            print(f"  Sum Left:              {config.get('sum_left_volume', '(not set)')}")
+            print(f"  Sum Right:             {config.get('sum_right_volume', '(not set)')}")
 
         print("\nSchedule:")
-        print(f"  Start time:           {config.get('start_time') or '(not set)'}")
-        print(f"  Stop time:            {config.get('end_time') or '(not set)'}")
+        print(f"  Start time:            {config.get('start_time') or '(not set)'}")
+        print(f"  Stop time:             {config.get('end_time') or '(not set)'}")
     else:
         print("\n⊘ No configuration found in .env.local")
         print("   Run 'just configure' to set up audio devices and volumes")
@@ -171,8 +184,9 @@ def main():
     print_header("AUDIO FILES")
 
     audio_files = {
-        "Centre": "./files/centre.wav",
-        "Stereo": "./files/stereo.wav",
+        "Sum (Full Mix)": "./files/sum.wav",
+        "Instruments (Surround)": "./files/instruments.wav",
+        "Vox+Sub": "./files/vox_sub.wav",
     }
 
     for name, path in audio_files.items():

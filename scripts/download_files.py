@@ -2,16 +2,16 @@
 """
 Download audio files from URLs specified in .env.local
 Maps the URLs to the following filenames:
-- WAV_CENTRE_URL -> files/centre.wav
-- WAV_STEREO_URL -> files/stereo.wav
-- MP3_CENTRE_URL -> files/centre.mp3
-- MP3_STEREO_URL -> files/stereo.mp3
+- WAV_SUM_URL -> files/sum.wav (full mix stereo for 2ch mode)
+- WAV_INSTRUMENTS_URL -> files/instruments.wav (L-R surround for 4ch mode)
+- WAV_VOX_SUB_URL -> files/vox_sub.wav (L=vox, R=sub for 4ch mode)
 """
 
 import os
 import sys
 from pathlib import Path
 from urllib.request import urlopen
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env.local
@@ -19,10 +19,9 @@ load_dotenv(".env.local")
 
 # File mappings
 FILE_MAPPINGS = {
-    "WAV_CENTRE_URL": "files/centre.wav",
-    "WAV_STEREO_URL": "files/stereo.wav",
-    "MP3_CENTRE_URL": "files/centre.mp3",
-    "MP3_STEREO_URL": "files/stereo.mp3",
+    "WAV_SUM_URL": "files/sum.wav",
+    "WAV_INSTRUMENTS_URL": "files/instruments.wav",
+    "WAV_VOX_SUB_URL": "files/vox_sub.wav",
 }
 
 

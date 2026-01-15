@@ -3,11 +3,14 @@ import platform
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from datetime import datetime, timedelta
 
+import numpy as np
 import pygame
+from scipy.io import wavfile
 
 from eq_processor import load_eq_from_env
 
@@ -15,42 +18,72 @@ from eq_processor import load_eq_from_env
 class MP3Player:
     def __init__(
         self,
-        mp3_path,
-        second_path=None,
-        volume=0.5,
+        playback_mode="4ch",
+        sum_path="./files/sum.wav",
+        instruments_path="./files/instruments.wav",
+        vox_sub_path="./files/vox_sub.wav",
         audio_device=None,
-        second_volume=0.5,
-        main_left_volume=None,
-        main_right_volume=None,
-        second_left_volume=None,
-        second_right_volume=None,
-        centre_eq=None,
-        stereo_eq=None,
+        # Volume settings
+        vox_volume=0.5,
+        sub_volume=0.5,
+        surround_left_volume=0.5,
+        surround_right_volume=0.5,
+        sum_left_volume=0.5,
+        sum_right_volume=0.5,
+        # EQ processors (optional, loaded from env if None)
+        vox_eq=None,
+        sub_eq=None,
+        surround_eq=None,
+        sum_eq=None,
     ):
-        # audio_device may be:
-        #  - None -> use default OS audio (pygame)
-        #  - a single string (e.g. "hw:1,0") -> use that device for the centre track
-        #  - a tuple/list of two strings (centre_device, stereo_device) -> play each track to its device
+        """
+        Initialize MP3Player with support for 2ch and 4ch playback modes.
+
+        2ch mode: Plays sum.wav to a single stereo output (L/R full mix)
+        4ch mode: Plays vox_sub.wav (L=Vox, R=Sub) to device 1 +
+                  instruments.wav (L=Surround L, R=Surround R) to device 2
+
+        Args:
+            playback_mode: "2ch" or "4ch"
+            sum_path: Path to full mix stereo file (2ch mode)
+            instruments_path: Path to L-R instruments/surround file (4ch mode)
+            vox_sub_path: Path to vox(L)/sub(R) file (4ch mode)
+            audio_device: None, single device string, or tuple (device1, device2)
+            vox_volume: Vox channel volume (0.0-1.0)
+            sub_volume: Sub channel volume (0.0-1.0)
+            surround_left_volume: Surround left volume (0.0-1.0)
+            surround_right_volume: Surround right volume (0.0-1.0)
+            sum_left_volume: Sum left volume (0.0-1.0, 2ch mode)
+            sum_right_volume: Sum right volume (0.0-1.0, 2ch mode)
+        """
         self._subprocs = []
 
-        self.mp3_path = mp3_path
-        self.second_path = second_path
-        self.volume = volume
-        self.second_volume = second_volume
+        # Playback mode
+        self.playback_mode = playback_mode.lower() if playback_mode else "4ch"
 
-        # Per-channel volume settings (defaults to overall volume if not specified)
-        self.main_left_volume = main_left_volume if main_left_volume is not None else volume
-        self.main_right_volume = main_right_volume if main_right_volume is not None else volume
-        self.second_left_volume = second_left_volume if second_left_volume is not None else second_volume
-        self.second_right_volume = second_right_volume if second_right_volume is not None else second_volume
+        # File paths
+        self.sum_path = sum_path
+        self.instruments_path = instruments_path
+        self.vox_sub_path = vox_sub_path
 
-        # EQ processors for each track
-        self.centre_eq = centre_eq if centre_eq is not None else load_eq_from_env("centre")
-        self.stereo_eq = stereo_eq if stereo_eq is not None else load_eq_from_env("stereo")
+        # Volume settings
+        self.vox_volume = vox_volume
+        self.sub_volume = sub_volume
+        self.surround_left_volume = surround_left_volume
+        self.surround_right_volume = surround_right_volume
+        self.sum_left_volume = sum_left_volume
+        self.sum_right_volume = sum_right_volume
 
-        # Paths to EQ-processed files (None = use original)
-        self._processed_centre_path = None
-        self._processed_stereo_path = None
+        # EQ processors for each track type
+        self.vox_eq = vox_eq if vox_eq is not None else load_eq_from_env("vox")
+        self.sub_eq = sub_eq if sub_eq is not None else load_eq_from_env("sub")
+        self.surround_eq = surround_eq if surround_eq is not None else load_eq_from_env("surround")
+        self.sum_eq = sum_eq if sum_eq is not None else load_eq_from_env("sum")
+
+        # Paths to processed files (None = use original)
+        self._processed_vox_sub_path = None
+        self._processed_instruments_path = None
+        self._processed_sum_path = None
         self._eq_dirty = True  # Flag to reprocess audio when EQ changes
 
         # keep reference to pygame channel for second track (dev/testing)
@@ -102,7 +135,7 @@ class MP3Player:
                 if self.devices[0]:
                     os.environ["AUDIODEV"] = self.devices[0]
             pygame.mixer.init()
-            pygame.mixer.music.set_volume(self.volume)
+            pygame.mixer.music.set_volume(0.5)
 
     def _within_window_time(self, now, start_time, end_time):
         if start_time == end_time:
@@ -196,7 +229,7 @@ class MP3Player:
         except FileNotFoundError:
             return False
 
-    def _set_alsa_volume_for_device(self, device, vol_val):
+    def _set_alsa_volume_for_device(self, device, vol_val):  # noqa: C901
         # vol_val: float 0.0..1.0 OR tuple (left_float, right_float)
         if not device:
             return False
@@ -240,119 +273,131 @@ class MP3Player:
 
         return False
 
-    def set_volume(self, volume):
-        self.volume = max(0.0, min(1.0, volume))
-        self.main_left_volume = self.volume
-        self.main_right_volume = self.volume
-        if not self._use_subprocess:
-            pygame.mixer.music.set_volume(self.volume)
-            # if pygame second channel exists, keep its volume consistent
+    def set_vox_volume(self, volume):
+        """Set vox (centre speaker) volume."""
+        self.vox_volume = max(0.0, min(1.0, volume))
+        if self._use_subprocess:
+            # In 4ch mode, vox is the left channel of device 1
+            main_device = self.devices[0] if isinstance(self.devices, tuple) else self.devices
+            if main_device:
+                self._set_alsa_volume_for_device(main_device, (self.vox_volume, self.sub_volume))
+
+    def set_sub_volume(self, volume):
+        """Set sub volume."""
+        self.sub_volume = max(0.0, min(1.0, volume))
+        if self._use_subprocess:
+            # In 4ch mode, sub is the right channel of device 1
+            main_device = self.devices[0] if isinstance(self.devices, tuple) else self.devices
+            if main_device:
+                self._set_alsa_volume_for_device(main_device, (self.vox_volume, self.sub_volume))
+
+    def set_surround_volumes(self, left_volume, right_volume):
+        """Set surround (instruments) left and right volumes."""
+        self.surround_left_volume = max(0.0, min(1.0, left_volume))
+        self.surround_right_volume = max(0.0, min(1.0, right_volume))
+        if self._use_subprocess:
+            # In 4ch mode, surround is device 2
+            second_device = self.devices[1] if isinstance(self.devices, tuple) else None
+            if second_device:
+                self._set_alsa_volume_for_device(second_device, (self.surround_left_volume, self.surround_right_volume))
+        else:
             if self._pygame_channel2:
                 try:
-                    self._pygame_channel2.set_volume(self.second_volume)
+                    avg = (self.surround_left_volume + self.surround_right_volume) / 2
+                    self._pygame_channel2.set_volume(avg)
                 except Exception:
                     pass
+
+    def set_sum_volumes(self, left_volume, right_volume):
+        """Set sum (2ch mode full mix) left and right volumes."""
+        self.sum_left_volume = max(0.0, min(1.0, left_volume))
+        self.sum_right_volume = max(0.0, min(1.0, right_volume))
+        if not self._use_subprocess:
+            avg = (self.sum_left_volume + self.sum_right_volume) / 2
+            pygame.mixer.music.set_volume(avg)
         else:
-            # attempt to set ALSA volume for main device
-            main_device = None
-            if isinstance(self.devices, tuple):
-                main_device = self.devices[0]
-            else:
-                main_device = self.devices
+            main_device = self.devices[0] if isinstance(self.devices, tuple) else self.devices
             if main_device:
-                ok = self._set_alsa_volume_for_device(main_device, self.volume)
-                if not ok:
-                    print(
-                        f"Warning: could not set ALSA mixer for device {main_device}. "
-                        "Try running with sudo or configure sudoers."
-                    )
+                self._set_alsa_volume_for_device(main_device, (self.sum_left_volume, self.sum_right_volume))
+
+    # Legacy methods for compatibility
+    def set_volume(self, volume):
+        """Set main volume (affects vox in 4ch, sum left in 2ch)."""
+        if self.playback_mode == "2ch":
+            self.set_sum_volumes(volume, self.sum_right_volume)
+        else:
+            self.set_vox_volume(volume)
 
     def set_main_channel_volumes(self, left_volume, right_volume):
-        """Set left and right channel volumes for the main track independently."""
-        self.main_left_volume = max(0.0, min(1.0, left_volume))
-        self.main_right_volume = max(0.0, min(1.0, right_volume))
-        # Update overall volume to average
-        self.volume = (self.main_left_volume + self.main_right_volume) / 2
-        if not self._use_subprocess:
-            pygame.mixer.music.set_volume(self.volume)
+        """Set main track channel volumes (vox/sub in 4ch, sum L/R in 2ch)."""
+        if self.playback_mode == "2ch":
+            self.set_sum_volumes(left_volume, right_volume)
         else:
-            # attempt to set ALSA volume for main device
-            try:
-                main_device = None
-                if isinstance(self.devices, tuple):
-                    main_device = self.devices[0]
-                else:
-                    main_device = self.devices
-                if main_device:
-                    ok = self._set_alsa_volume_for_device(main_device, (self.main_left_volume, self.main_right_volume))
-                    if not ok:
-                        print(
-                            f"Warning: could not set ALSA mixer for device {main_device}. "
-                            "Try running with sudo or configure sudoers."
-                        )
-            except Exception as e:
-                print(f"Error setting ALSA volume for main channels: {e}")
+            self.set_vox_volume(left_volume)
+            self.set_sub_volume(right_volume)
 
     def set_second_channel_volumes(self, left_volume, right_volume):
-        """Set left and right channel volumes for the second track independently."""
-        self.second_left_volume = max(0.0, min(1.0, left_volume))
-        self.second_right_volume = max(0.0, min(1.0, right_volume))
-        # Update overall volume to average
-        self.second_volume = (self.second_left_volume + self.second_right_volume) / 2
-        if not self._use_subprocess:
-            if self._pygame_channel2:
-                try:
-                    self._pygame_channel2.set_volume(self.second_volume)
-                except Exception:
-                    pass
-        else:
-            # attempt to set ALSA volume for second device
-            try:
-                second_device = None
-                if isinstance(self.devices, tuple):
-                    second_device = self.devices[1]
-                if second_device:
-                    ok = self._set_alsa_volume_for_device(
-                        second_device, (self.second_left_volume, self.second_right_volume)
-                    )
-                    if not ok:
-                        print(
-                            f"Warning: could not set ALSA mixer for device {second_device}. "
-                            "Try running with sudo or configure sudoers."
-                        )
-            except Exception as e:
-                print(f"Error setting ALSA volume for second channels: {e}")
+        """Set second track channel volumes (surround L/R in 4ch)."""
+        self.set_surround_volumes(left_volume, right_volume)
 
     def set_second_volume(self, volume):
-        self.second_volume = max(0.0, min(1.0, volume))
-        self.second_left_volume = self.second_volume
-        self.second_right_volume = self.second_volume
-        if not self._use_subprocess:
-            if self._pygame_channel2:
-                try:
-                    self._pygame_channel2.set_volume(self.second_volume)
-                except Exception:
-                    pass
-        else:
-            # attempt to set ALSA volume for second device
-            second_device = None
-            if isinstance(self.devices, tuple):
-                second_device = self.devices[1]
-            if second_device:
-                ok = self._set_alsa_volume_for_device(second_device, self.second_volume)
-                if not ok:
-                    print(
-                        f"Warning: could not set ALSA mixer for device {second_device}. "
-                        "Try running with sudo or configure sudoers."
-                    )
+        """Set second track volume (surround in 4ch)."""
+        self.set_surround_volumes(volume, volume)
 
-    def _start_subprocess_playback(self):
+    def _process_vox_sub_file(self):
+        """
+        Process vox_sub.wav applying separate EQ to left (vox) and right (sub) channels.
+        Returns path to processed file or None if no processing needed.
+        """
+        if not self.vox_sub_path or not os.path.exists(self.vox_sub_path):
+            return None
+
+        if not self.vox_eq.has_active_eq() and not self.sub_eq.has_active_eq():
+            return None
+
+        try:
+            sample_rate, audio_data = wavfile.read(self.vox_sub_path)
+
+            # Ensure stereo
+            if len(audio_data.shape) == 1:
+                audio_data = np.column_stack([audio_data, audio_data])
+
+            # Process left channel (vox) with vox_eq
+            left_channel = audio_data[:, 0:1]  # Keep as 2D
+            if self.vox_eq.has_active_eq():
+                left_processed = self.vox_eq.process_audio(left_channel, sample_rate)
+            else:
+                left_processed = left_channel
+
+            # Process right channel (sub) with sub_eq
+            right_channel = audio_data[:, 1:2]  # Keep as 2D
+            if self.sub_eq.has_active_eq():
+                right_processed = self.sub_eq.process_audio(right_channel, sample_rate)
+            else:
+                right_processed = right_channel
+
+            # Combine channels
+            processed = np.column_stack([left_processed.flatten(), right_processed.flatten()])
+
+            # Write to temp file
+            fd, output_path = tempfile.mkstemp(suffix=".wav", prefix="vox_sub_eq_")
+            os.close(fd)
+            wavfile.write(output_path, sample_rate, processed.astype(audio_data.dtype))
+
+            print(f"Applied EQ to vox_sub track: vox={self.vox_eq}, sub={self.sub_eq}")
+            return output_path
+
+        except Exception as e:
+            print(f"Warning: Could not apply EQ to vox_sub track: {e}")
+            return None
+
+    def _start_subprocess_playback(self):  # noqa: C901
         """Start subprocess-based ALSA playback for each device."""
         self.stop()
         procs = []
 
         # Get EQ-processed paths (or originals if no EQ)
-        centre_path, stereo_path = self._get_playback_paths()
+        primary_path, secondary_path = self._get_playback_paths()
 
         def start_loop_playback(path, device):
             if not path or not device:
@@ -365,25 +410,38 @@ class MP3Player:
 
         main_device, second_device = self.devices if isinstance(self.devices, tuple) else (self.devices, None)
 
-        # Start main device playback
-        if isinstance(main_device, str):
-            try:
-                self._set_alsa_volume_for_device(main_device, self.volume)
-            except Exception:
-                pass
-            p1 = start_loop_playback(centre_path, main_device)
-            if p1:
-                procs.append(p1)
+        if self.playback_mode == "2ch":
+            # 2ch mode: play sum.wav to main device only
+            if isinstance(main_device, str):
+                try:
+                    self._set_alsa_volume_for_device(main_device, (self.sum_left_volume, self.sum_right_volume))
+                except Exception:
+                    pass
+                p1 = start_loop_playback(primary_path, main_device)
+                if p1:
+                    procs.append(p1)
+        else:
+            # 4ch mode: play vox_sub to device 1, instruments to device 2
+            if isinstance(main_device, str):
+                try:
+                    self._set_alsa_volume_for_device(main_device, (self.vox_volume, self.sub_volume))
+                except Exception:
+                    pass
+                p1 = start_loop_playback(primary_path, main_device)
+                if p1:
+                    procs.append(p1)
 
-        # Start second device playback
-        if stereo_path and isinstance(second_device, str):
-            try:
-                self._set_alsa_volume_for_device(second_device, self.second_volume)
-            except Exception:
-                pass
-            p2 = start_loop_playback(stereo_path, second_device)
-            if p2:
-                procs.append(p2)
+            # Start second device playback (instruments/surround)
+            if secondary_path and isinstance(second_device, str):
+                try:
+                    self._set_alsa_volume_for_device(
+                        second_device, (self.surround_left_volume, self.surround_right_volume)
+                    )
+                except Exception:
+                    pass
+                p2 = start_loop_playback(secondary_path, second_device)
+                if p2:
+                    procs.append(p2)
 
         self._subprocs = procs
         self._playing = len(procs) > 0
@@ -391,19 +449,29 @@ class MP3Player:
     def _start_pygame_playback(self):
         """Start pygame-based playback for single default output."""
         # Get EQ-processed paths (or originals if no EQ)
-        centre_path, stereo_path = self._get_playback_paths()
+        primary_path, secondary_path = self._get_playback_paths()
 
-        pygame.mixer.music.load(centre_path)
-        pygame.mixer.music.play(loops=-1)
-        self._playing = True
+        if self.playback_mode == "2ch":
+            # 2ch mode: play sum only
+            pygame.mixer.music.load(primary_path)
+            pygame.mixer.music.set_volume((self.sum_left_volume + self.sum_right_volume) / 2)
+            pygame.mixer.music.play(loops=-1)
+            self._playing = True
+        else:
+            # 4ch mode: play vox_sub as main, instruments as second
+            pygame.mixer.music.load(primary_path)
+            pygame.mixer.music.set_volume((self.vox_volume + self.sub_volume) / 2)
+            pygame.mixer.music.play(loops=-1)
+            self._playing = True
 
-        # Play second track if provided (same output)
-        if stereo_path:
-            sound2 = pygame.mixer.Sound(stereo_path)
-            channel2 = pygame.mixer.Channel(1)
-            channel2.set_volume(self.second_volume)
-            channel2.play(sound2, loops=-1)
-            self._pygame_channel2 = channel2
+            # Play second track if provided (same output in pygame - no multi-device support)
+            if secondary_path:
+                sound2 = pygame.mixer.Sound(secondary_path)
+                channel2 = pygame.mixer.Channel(1)
+                avg_vol = (self.surround_left_volume + self.surround_right_volume) / 2
+                channel2.set_volume(avg_vol)
+                channel2.play(sound2, loops=-1)
+                self._pygame_channel2 = channel2
 
     def play_loop(self, source: str = "manual"):
         """
@@ -461,12 +529,11 @@ class MP3Player:
             self._playing = False
         else:
             pygame.mixer.music.stop()
-            if self.second_path:
-                if self._pygame_channel2:
-                    try:
-                        self._pygame_channel2.stop()
-                    except Exception:
-                        pass
+            if self._pygame_channel2:
+                try:
+                    self._pygame_channel2.stop()
+                except Exception:
+                    pass
             self._playing = False
 
     def play_between_times(self, start_time, end_time):
@@ -522,57 +589,95 @@ class MP3Player:
         # Clean up old processed files
         self._cleanup_processed_files()
 
-        # Process centre track
-        if self.mp3_path and self.centre_eq.has_active_eq():
-            try:
-                self._processed_centre_path = self.centre_eq.process_file(self.mp3_path)
-                print(f"Applied EQ to centre track: {self.centre_eq}")
-            except Exception as e:
-                print(f"Warning: Could not apply EQ to centre track: {e}")
-                self._processed_centre_path = None
+        if self.playback_mode == "2ch":
+            # Process sum track
+            if self.sum_path and self.sum_eq.has_active_eq():
+                try:
+                    self._processed_sum_path = self.sum_eq.process_file(self.sum_path)
+                    print(f"Applied EQ to sum track: {self.sum_eq}")
+                except Exception as e:
+                    print(f"Warning: Could not apply EQ to sum track: {e}")
+                    self._processed_sum_path = None
+        else:
+            # 4ch mode: process vox_sub (with separate L/R EQ) and instruments
+            if self.vox_sub_path:
+                try:
+                    self._processed_vox_sub_path = self._process_vox_sub_file()
+                except Exception as e:
+                    print(f"Warning: Could not apply EQ to vox_sub track: {e}")
+                    self._processed_vox_sub_path = None
 
-        # Process stereo track
-        if self.second_path and self.stereo_eq.has_active_eq():
-            try:
-                self._processed_stereo_path = self.stereo_eq.process_file(self.second_path)
-                print(f"Applied EQ to stereo track: {self.stereo_eq}")
-            except Exception as e:
-                print(f"Warning: Could not apply EQ to stereo track: {e}")
-                self._processed_stereo_path = None
+            # Process instruments (surround) track
+            if self.instruments_path and self.surround_eq.has_active_eq():
+                try:
+                    self._processed_instruments_path = self.surround_eq.process_file(self.instruments_path)
+                    print(f"Applied EQ to surround track: {self.surround_eq}")
+                except Exception as e:
+                    print(f"Warning: Could not apply EQ to surround track: {e}")
+                    self._processed_instruments_path = None
 
         self._eq_dirty = False
 
     def _cleanup_processed_files(self):
         """Clean up temporary processed files."""
-        for path in [self._processed_centre_path, self._processed_stereo_path]:
-            if path and path != self.mp3_path and path != self.second_path:
+        for path in [self._processed_vox_sub_path, self._processed_instruments_path, self._processed_sum_path]:
+            if path and path not in [self.vox_sub_path, self.instruments_path, self.sum_path]:
                 try:
                     if os.path.exists(path):
                         os.remove(path)
                 except Exception:
                     pass
-        self._processed_centre_path = None
-        self._processed_stereo_path = None
+        self._processed_vox_sub_path = None
+        self._processed_instruments_path = None
+        self._processed_sum_path = None
 
     def _get_playback_paths(self):
         """Get the paths to use for playback (processed or original)."""
         self._ensure_eq_processed()
-        centre_path = self._processed_centre_path or self.mp3_path
-        stereo_path = self._processed_stereo_path or self.second_path
-        return centre_path, stereo_path
+
+        if self.playback_mode == "2ch":
+            # 2ch mode: return sum path only
+            primary_path = self._processed_sum_path or self.sum_path
+            return primary_path, None
+        else:
+            # 4ch mode: return vox_sub and instruments paths
+            primary_path = self._processed_vox_sub_path or self.vox_sub_path
+            secondary_path = self._processed_instruments_path or self.instruments_path
+            return primary_path, secondary_path
+
+    def _get_eq_for_track(self, track: str):
+        """Get the EQ processor for a given track name."""
+        track_lower = track.lower()
+        if track_lower == "vox":
+            return self.vox_eq
+        elif track_lower == "sub":
+            return self.sub_eq
+        elif track_lower == "surround":
+            return self.surround_eq
+        elif track_lower == "sum":
+            return self.sum_eq
+        # Legacy support
+        elif track_lower == "centre":
+            return self.vox_eq
+        elif track_lower == "stereo":
+            return self.surround_eq
+        return None
 
     def set_eq_band(self, track: str, band: int, freq: float = None, gain: float = None, width: float = None):
         """
         Set EQ parameters for a specific band.
 
         Args:
-            track: "centre" or "stereo"
+            track: "vox", "sub", "surround", or "sum"
             band: Band number 1-4
             freq: Center frequency in Hz (optional)
             gain: Gain in dB, -12 to +12 (optional)
             width: Q factor, 0.1 to 10 (optional)
         """
-        eq = self.centre_eq if track.lower() == "centre" else self.stereo_eq
+        eq = self._get_eq_for_track(track)
+        if eq is None:
+            return
+
         band_index = band - 1  # Convert to 0-indexed
 
         if 0 <= band_index < 4:
@@ -584,13 +689,16 @@ class MP3Player:
         Get EQ parameters for a specific band.
 
         Args:
-            track: "centre" or "stereo"
+            track: "vox", "sub", "surround", or "sum"
             band: Band number 1-4
 
         Returns:
             Dict with freq, gain, width or empty dict if invalid
         """
-        eq = self.centre_eq if track.lower() == "centre" else self.stereo_eq
+        eq = self._get_eq_for_track(track)
+        if eq is None:
+            return {}
+
         band_index = band - 1
 
         if 0 <= band_index < 4:
@@ -601,7 +709,9 @@ class MP3Player:
 
     def get_all_eq(self, track: str) -> dict:
         """Get all EQ bands for a track."""
-        eq = self.centre_eq if track.lower() == "centre" else self.stereo_eq
+        eq = self._get_eq_for_track(track)
+        if eq is None:
+            return {}
         return eq.to_dict()
 
     def apply_eq(self):
