@@ -25,7 +25,10 @@ setup:
         sudo apt-get install -y python3-dev python3-numpy python3-scipy libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev libjpeg-dev pkg-config alsa-utils; \
         echo "Creating venv with access to system numpy/scipy..."; \
         uv venv --system-site-packages; \
+        echo "Syncing base deps..."; \
         uv sync; \
+        echo "Installing player extras (pygame) after system deps are present..."; \
+        uv sync --extra player || true; \
     else \
         uv sync; \
     fi

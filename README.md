@@ -37,6 +37,7 @@ Uses a single stereo file for simple L/R playback:
 ```bash
 git clone https://github.com/PF-Production/pi-project.git
 cd pi-project
+curl -LsSf https://astral.sh/uv/install.sh | sh
 uv run just setup
 ```
 
