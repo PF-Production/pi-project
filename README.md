@@ -15,9 +15,9 @@ Uses 2 stereo audio files routed to 2 separate hardware outputs:
 
 ### 2-Channel Mode
 
-Uses a single stereo file for simple L/R playback:
+Uses a single stereo file for simple 1.1 playback:
 
-- **sum.wav**: Full stereo mix to a single output device
+- **sum.wav**: L channel → Mono mix, R channel → Sub
 
 ## Features
 

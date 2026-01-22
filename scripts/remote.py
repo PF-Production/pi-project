@@ -85,7 +85,7 @@ def main():
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((args.host, port))
-        sock.settimeout(5.0)
+        sock.settimeout(120.0)
     except Exception as e:
         print(f"Failed to connect: {e}")
         sys.exit(1)
