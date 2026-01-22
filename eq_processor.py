@@ -206,7 +206,7 @@ def load_eq_from_env(track: str = "vox") -> EQProcessor:
     Load EQ settings from environment variables.
 
     Args:
-        track: "vox", "sub", "surround", or "sum" (also accepts legacy "centre"/"stereo")
+        track: "vox", "sub", or "surround" (also accepts legacy "centre"/"stereo")
 
     Returns:
         Configured EQProcessor
@@ -243,7 +243,7 @@ def save_eq_to_env_dict(eq: EQProcessor, track: str = "vox") -> dict:
 
     Args:
         eq: EQProcessor instance
-        track: "vox", "sub", "surround", or "sum"
+        track: "vox", "sub", or "surround"
 
     Returns:
         Dictionary of env var name -> value

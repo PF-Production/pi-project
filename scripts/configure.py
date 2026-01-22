@@ -274,14 +274,12 @@ def main():
     current_sub = float(get_env_value("SUB_VOLUME", "0.5"))
     current_surround_left = float(get_env_value("SURROUND_LEFT_VOLUME", "0.5"))
     current_surround_right = float(get_env_value("SURROUND_RIGHT_VOLUME", "0.5"))
-    current_sum_left = float(get_env_value("SUM_LEFT_VOLUME", "0.5"))
-    current_sum_right = float(get_env_value("SUM_RIGHT_VOLUME", "0.5"))
     current_start_time = get_env_value("PLAY_START_TIME")
     current_end_time = get_env_value("PLAY_END_TIME")
 
     # Playback Mode selection
     print_header("PLAYBACK MODE")
-    print("\n  2ch: Full stereo mix to single output (L/R)")
+    print("\n  2ch: 1.1 mix to single output (L=Vox/mono, R=Sub)")
     print("  4ch: Vox+Sub to device 1, Surround L+R to device 2")
     mode_input = input(f"\n  Select mode (2ch/4ch) [{current_mode}]: ").strip().lower()
     playback_mode = mode_input if mode_input in ("2ch", "4ch") else current_mode
@@ -293,36 +291,28 @@ def main():
         device1 = select_device(all_devices, "Vox+Sub", current_device1)
         device2 = select_device(all_devices, "Surround", current_device2)
     else:
-        device1 = select_device(all_devices, "Sum (Full Mix)", current_device1)
+        device1 = select_device(all_devices, "Vox+Sub (1.1 mix)", current_device1)
         device2 = None
 
     # Volume configuration
     print_header("VOLUME CONFIGURATION")
 
+    # Vox and Sub are used in both 2ch and 4ch modes
+    print("\nVox/Sub Volumes (used in both 2ch and 4ch modes):")
+    vox, vox_provided = get_volume_input("  Vox (Left channel) volume (0.0-1.0):", current_vox)
+    sub, sub_provided = get_volume_input("  Sub (Right channel) volume (0.0-1.0):", current_sub)
+
     if playback_mode == "4ch":
-        print("\n4ch Mode Volumes:")
-        vox, vox_provided = get_volume_input("  Vox (Centre speaker) volume (0.0-1.0):", current_vox)
-        sub, sub_provided = get_volume_input("  Sub volume (0.0-1.0):", current_sub)
+        print("\n4ch Mode - Surround Volumes:")
         surround_left, surround_left_provided = get_volume_input(
             "  Surround Left volume (0.0-1.0):", current_surround_left
         )
         surround_right, surround_right_provided = get_volume_input(
             "  Surround Right volume (0.0-1.0):", current_surround_right
         )
-        sum_left_provided = False
-        sum_right_provided = False
-        sum_left = current_sum_left
-        sum_right = current_sum_right
     else:
-        print("\n2ch Mode Volumes:")
-        sum_left, sum_left_provided = get_volume_input("  Sum Left volume (0.0-1.0):", current_sum_left)
-        sum_right, sum_right_provided = get_volume_input("  Sum Right volume (0.0-1.0):", current_sum_right)
-        vox_provided = False
-        sub_provided = False
         surround_left_provided = False
         surround_right_provided = False
-        vox = current_vox
-        sub = current_sub
         surround_left = current_surround_left
         surround_right = current_surround_right
 
@@ -349,17 +339,14 @@ def main():
         print(f"  Device 1 (Vox+Sub):    {device1 or '(not set)'}")
         print(f"  Device 2 (Surround):   {device2 or '(not set)'}")
     else:
-        print(f"  Device 1 (Sum):        {device1 or '(not set)'}")
+        print(f"  Device 1 (Vox+Sub):    {device1 or '(not set)'}")
 
     print("\nVolume Settings:")
+    print(f"  Vox (Left):            {vox:.1f}")
+    print(f"  Sub (Right):           {sub:.1f}")
     if playback_mode == "4ch":
-        print(f"  Vox (Centre):          {vox:.1f}")
-        print(f"  Sub:                   {sub:.1f}")
         print(f"  Surround Left:         {surround_left:.1f}")
         print(f"  Surround Right:        {surround_right:.1f}")
-    else:
-        print(f"  Sum Left:              {sum_left:.1f}")
-        print(f"  Sum Right:             {sum_right:.1f}")
 
     print("\nSchedule:")
     print(f"  Start time:            {start_time or '(not set)'}")
@@ -379,7 +366,7 @@ def main():
         if device2 is not None:
             config["AUDIO_DEVICE_2"] = device2
 
-        # Volume settings based on mode
+        # Volume settings - vox/sub used in both modes
         if vox_provided:
             config["VOX_VOLUME"] = str(vox)
         if sub_provided:
@@ -388,10 +375,6 @@ def main():
             config["SURROUND_LEFT_VOLUME"] = str(surround_left)
         if surround_right_provided:
             config["SURROUND_RIGHT_VOLUME"] = str(surround_right)
-        if sum_left_provided:
-            config["SUM_LEFT_VOLUME"] = str(sum_left)
-        if sum_right_provided:
-            config["SUM_RIGHT_VOLUME"] = str(sum_right)
 
         if start_time_provided and start_time:
             config["PLAY_START_TIME"] = start_time

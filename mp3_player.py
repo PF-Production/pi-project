@@ -28,33 +28,31 @@ class MP3Player:
         sub_volume=0.5,
         surround_left_volume=0.5,
         surround_right_volume=0.5,
-        sum_left_volume=0.5,
-        sum_right_volume=0.5,
         # EQ processors (optional, loaded from env if None)
         vox_eq=None,
         sub_eq=None,
         surround_eq=None,
-        sum_eq=None,
     ):
         """
         Initialize MP3Player with support for 2ch and 4ch playback modes.
 
-        2ch mode: Plays sum.wav to a single stereo output (L/R full mix)
+        2ch mode: Plays sum.wav to a single stereo output (L=Vox/mono, R=Sub)
         4ch mode: Plays vox_sub.wav (L=Vox, R=Sub) to device 1 +
                   instruments.wav (L=Surround L, R=Surround R) to device 2
 
+        In both modes, vox_volume controls the left channel (vox/mono) and
+        sub_volume controls the right channel (sub).
+
         Args:
             playback_mode: "2ch" or "4ch"
-            sum_path: Path to full mix stereo file (2ch mode)
+            sum_path: Path to 1.1 mix stereo file - L=vox/mono, R=sub (2ch mode)
             instruments_path: Path to L-R instruments/surround file (4ch mode)
             vox_sub_path: Path to vox(L)/sub(R) file (4ch mode)
             audio_device: None, single device string, or tuple (device1, device2)
-            vox_volume: Vox channel volume (0.0-1.0)
-            sub_volume: Sub channel volume (0.0-1.0)
-            surround_left_volume: Surround left volume (0.0-1.0)
-            surround_right_volume: Surround right volume (0.0-1.0)
-            sum_left_volume: Sum left volume (0.0-1.0, 2ch mode)
-            sum_right_volume: Sum right volume (0.0-1.0, 2ch mode)
+            vox_volume: Vox/mono channel volume - left channel (0.0-1.0)
+            sub_volume: Sub channel volume - right channel (0.0-1.0)
+            surround_left_volume: Surround left volume (0.0-1.0, 4ch mode only)
+            surround_right_volume: Surround right volume (0.0-1.0, 4ch mode only)
         """
         self._subprocs = []
 
@@ -67,18 +65,20 @@ class MP3Player:
         self.vox_sub_path = vox_sub_path
 
         # Volume settings
+        # vox_volume: left channel (vox/mono) in both 2ch and 4ch modes
+        # sub_volume: right channel (sub) in both 2ch and 4ch modes
         self.vox_volume = vox_volume
         self.sub_volume = sub_volume
         self.surround_left_volume = surround_left_volume
         self.surround_right_volume = surround_right_volume
-        self.sum_left_volume = sum_left_volume
-        self.sum_right_volume = sum_right_volume
 
-        # EQ processors for each track type
+        # EQ processors for each channel
+        # vox_eq: left channel EQ (vox/mono) - used in both 2ch and 4ch modes
+        # sub_eq: right channel EQ (sub) - used in both 2ch and 4ch modes
+        # surround_eq: surround channels - used in 4ch mode only
         self.vox_eq = vox_eq if vox_eq is not None else load_eq_from_env("vox")
         self.sub_eq = sub_eq if sub_eq is not None else load_eq_from_env("sub")
         self.surround_eq = surround_eq if surround_eq is not None else load_eq_from_env("surround")
-        self.sum_eq = sum_eq if sum_eq is not None else load_eq_from_env("sum")
 
         # Paths to processed files (None = use original)
         self._processed_vox_sub_path = None
@@ -274,22 +274,50 @@ class MP3Player:
         return False
 
     def set_vox_volume(self, volume):
-        """Set vox (centre speaker) volume."""
+        """Set vox (left channel) volume. Works in both 2ch and 4ch modes.
+
+        Volume is baked into the processed audio file for true per-channel control,
+        since ALSA mixer controls often don't provide independent L/R adjustment.
+        Use 'eq apply' or restart to apply changes.
+        ALSA mixer is also adjusted for best-effort runtime control.
+        """
         self.vox_volume = max(0.0, min(1.0, volume))
+
+        # Mark as needing reprocessing (for file-level volume in both modes)
+        self._eq_dirty = True
+
         if self._use_subprocess:
-            # In 4ch mode, vox is the left channel of device 1
+            # Vox is the left channel of device 1 (in both 2ch and 4ch modes)
             main_device = self.devices[0] if isinstance(self.devices, tuple) else self.devices
             if main_device:
                 self._set_alsa_volume_for_device(main_device, (self.vox_volume, self.sub_volume))
+        elif self.playback_mode == "2ch":
+            # For pygame in 2ch mode, use average of vox/sub for overall volume
+            avg = (self.vox_volume + self.sub_volume) / 2
+            pygame.mixer.music.set_volume(avg)
 
     def set_sub_volume(self, volume):
-        """Set sub volume."""
+        """Set sub (right channel) volume. Works in both 2ch and 4ch modes.
+
+        Volume is baked into the processed audio file for true per-channel control,
+        since ALSA mixer controls often don't provide independent L/R adjustment.
+        Use 'eq apply' or restart to apply changes.
+        ALSA mixer is also adjusted for best-effort runtime control.
+        """
         self.sub_volume = max(0.0, min(1.0, volume))
+
+        # Mark as needing reprocessing (for file-level volume in both modes)
+        self._eq_dirty = True
+
         if self._use_subprocess:
-            # In 4ch mode, sub is the right channel of device 1
+            # Sub is the right channel of device 1 (in both 2ch and 4ch modes)
             main_device = self.devices[0] if isinstance(self.devices, tuple) else self.devices
             if main_device:
                 self._set_alsa_volume_for_device(main_device, (self.vox_volume, self.sub_volume))
+        elif self.playback_mode == "2ch":
+            # For pygame in 2ch mode, use average of vox/sub for overall volume
+            avg = (self.vox_volume + self.sub_volume) / 2
+            pygame.mixer.music.set_volume(avg)
 
     def set_surround_volumes(self, left_volume, right_volume):
         """Set surround (instruments) left and right volumes."""
@@ -308,33 +336,15 @@ class MP3Player:
                 except Exception:
                     pass
 
-    def set_sum_volumes(self, left_volume, right_volume):
-        """Set sum (2ch mode full mix) left and right volumes."""
-        self.sum_left_volume = max(0.0, min(1.0, left_volume))
-        self.sum_right_volume = max(0.0, min(1.0, right_volume))
-        if not self._use_subprocess:
-            avg = (self.sum_left_volume + self.sum_right_volume) / 2
-            pygame.mixer.music.set_volume(avg)
-        else:
-            main_device = self.devices[0] if isinstance(self.devices, tuple) else self.devices
-            if main_device:
-                self._set_alsa_volume_for_device(main_device, (self.sum_left_volume, self.sum_right_volume))
-
     # Legacy methods for compatibility
     def set_volume(self, volume):
-        """Set main volume (affects vox in 4ch, sum left in 2ch)."""
-        if self.playback_mode == "2ch":
-            self.set_sum_volumes(volume, self.sum_right_volume)
-        else:
-            self.set_vox_volume(volume)
+        """Set main volume (affects vox/left channel)."""
+        self.set_vox_volume(volume)
 
     def set_main_channel_volumes(self, left_volume, right_volume):
-        """Set main track channel volumes (vox/sub in 4ch, sum L/R in 2ch)."""
-        if self.playback_mode == "2ch":
-            self.set_sum_volumes(left_volume, right_volume)
-        else:
-            self.set_vox_volume(left_volume)
-            self.set_sub_volume(right_volume)
+        """Set main track channel volumes (vox/sub - works in both 2ch and 4ch)."""
+        self.set_vox_volume(left_volume)
+        self.set_sub_volume(right_volume)
 
     def set_second_channel_volumes(self, left_volume, right_volume):
         """Set second track channel volumes (surround L/R in 4ch)."""
@@ -346,13 +356,21 @@ class MP3Player:
 
     def _process_vox_sub_file(self):
         """
-        Process vox_sub.wav applying separate EQ to left (vox) and right (sub) channels.
+        Process vox_sub.wav applying separate volume and EQ to left (vox) and right (sub) channels.
+
+        Volume is applied at the file level to ensure true per-channel control,
+        since ALSA mixer controls often don't provide independent L/R adjustment.
+
         Returns path to processed file or None if no processing needed.
         """
         if not self.vox_sub_path or not os.path.exists(self.vox_sub_path):
             return None
 
-        if not self.vox_eq.has_active_eq() and not self.sub_eq.has_active_eq():
+        # Check if any processing is needed (volume != 1.0 or EQ active)
+        needs_volume = self.vox_volume != 1.0 or self.sub_volume != 1.0
+        needs_eq = self.vox_eq.has_active_eq() or self.sub_eq.has_active_eq()
+
+        if not needs_volume and not needs_eq:
             return None
 
         try:
@@ -362,15 +380,25 @@ class MP3Player:
             if len(audio_data.shape) == 1:
                 audio_data = np.column_stack([audio_data, audio_data])
 
-            # Process left channel (vox) with vox_eq
-            left_channel = audio_data[:, 0:1]  # Keep as 2D
+            # Convert to float for processing
+            original_dtype = audio_data.dtype
+            if np.issubdtype(original_dtype, np.integer):
+                max_val = np.iinfo(original_dtype).max
+                audio_float = audio_data.astype(np.float64) / max_val
+            else:
+                audio_float = audio_data.astype(np.float64)
+
+            # Process left channel (vox) with volume and EQ
+            left_channel = audio_float[:, 0:1]  # Keep as 2D
+            left_channel = left_channel * self.vox_volume  # Apply volume
             if self.vox_eq.has_active_eq():
                 left_processed = self.vox_eq.process_audio(left_channel, sample_rate)
             else:
                 left_processed = left_channel
 
-            # Process right channel (sub) with sub_eq
-            right_channel = audio_data[:, 1:2]  # Keep as 2D
+            # Process right channel (sub) with volume and EQ
+            right_channel = audio_float[:, 1:2]  # Keep as 2D
+            right_channel = right_channel * self.sub_volume  # Apply volume
             if self.sub_eq.has_active_eq():
                 right_processed = self.sub_eq.process_audio(right_channel, sample_rate)
             else:
@@ -379,16 +407,94 @@ class MP3Player:
             # Combine channels
             processed = np.column_stack([left_processed.flatten(), right_processed.flatten()])
 
-            # Write to temp file
-            fd, output_path = tempfile.mkstemp(suffix=".wav", prefix="vox_sub_eq_")
-            os.close(fd)
-            wavfile.write(output_path, sample_rate, processed.astype(audio_data.dtype))
+            # Convert back to original dtype
+            if np.issubdtype(original_dtype, np.integer):
+                processed = np.clip(processed * max_val, -max_val, max_val).astype(original_dtype)
+            else:
+                processed = processed.astype(original_dtype)
 
-            print(f"Applied EQ to vox_sub track: vox={self.vox_eq}, sub={self.sub_eq}")
+            # Write to temp file
+            fd, output_path = tempfile.mkstemp(suffix=".wav", prefix="vox_sub_processed_")
+            os.close(fd)
+            wavfile.write(output_path, sample_rate, processed)
+
+            print(f"Processed vox_sub track: vox_vol={self.vox_volume:.2f}, sub_vol={self.sub_volume:.2f}")
             return output_path
 
         except Exception as e:
-            print(f"Warning: Could not apply EQ to vox_sub track: {e}")
+            print(f"Warning: Could not process vox_sub track: {e}")
+            return None
+
+    def _process_sum_file(self):
+        """
+        Process sum.wav applying separate volume and EQ to left (vox) and right (sub) channels.
+        Same as _process_vox_sub_file but for the sum.wav file used in 2ch mode.
+
+        Volume is applied at the file level to ensure true per-channel control,
+        since ALSA mixer controls often don't provide independent L/R adjustment.
+
+        Returns path to processed file or None if no processing needed.
+        """
+        if not self.sum_path or not os.path.exists(self.sum_path):
+            return None
+
+        # Check if any processing is needed (volume != 1.0 or EQ active)
+        needs_volume = self.vox_volume != 1.0 or self.sub_volume != 1.0
+        needs_eq = self.vox_eq.has_active_eq() or self.sub_eq.has_active_eq()
+
+        if not needs_volume and not needs_eq:
+            return None
+
+        try:
+            sample_rate, audio_data = wavfile.read(self.sum_path)
+
+            # Ensure stereo
+            if len(audio_data.shape) == 1:
+                audio_data = np.column_stack([audio_data, audio_data])
+
+            # Convert to float for processing
+            original_dtype = audio_data.dtype
+            if np.issubdtype(original_dtype, np.integer):
+                max_val = np.iinfo(original_dtype).max
+                audio_float = audio_data.astype(np.float64) / max_val
+            else:
+                audio_float = audio_data.astype(np.float64)
+
+            # Process left channel (vox/mono) with volume and EQ
+            left_channel = audio_float[:, 0:1]  # Keep as 2D
+            left_channel = left_channel * self.vox_volume  # Apply volume
+            if self.vox_eq.has_active_eq():
+                left_processed = self.vox_eq.process_audio(left_channel, sample_rate)
+            else:
+                left_processed = left_channel
+
+            # Process right channel (sub) with volume and EQ
+            right_channel = audio_float[:, 1:2]  # Keep as 2D
+            right_channel = right_channel * self.sub_volume  # Apply volume
+            if self.sub_eq.has_active_eq():
+                right_processed = self.sub_eq.process_audio(right_channel, sample_rate)
+            else:
+                right_processed = right_channel
+
+            # Combine channels
+            processed = np.column_stack([left_processed.flatten(), right_processed.flatten()])
+
+            # Convert back to original dtype
+            if np.issubdtype(original_dtype, np.integer):
+                processed = np.clip(processed * max_val, -max_val, max_val).astype(original_dtype)
+            else:
+                processed = processed.astype(original_dtype)
+
+            # Write to temp file
+            fd, output_path = tempfile.mkstemp(suffix=".wav", prefix="sum_processed_")
+            os.close(fd)
+            wavfile.write(output_path, sample_rate, processed)
+
+            print(f"Processed sum track: vox_vol={self.vox_volume:.2f}, sub_vol={self.sub_volume:.2f}")
+            return output_path
+
+        except Exception as e:
+            print(f"Warning: Could not process sum track: {e}")
             return None
 
     def _start_subprocess_playback(self):  # noqa: C901
@@ -411,10 +517,10 @@ class MP3Player:
         main_device, second_device = self.devices if isinstance(self.devices, tuple) else (self.devices, None)
 
         if self.playback_mode == "2ch":
-            # 2ch mode: play sum.wav to main device only
+            # 2ch mode: play sum.wav to main device only (vox=left, sub=right)
             if isinstance(main_device, str):
                 try:
-                    self._set_alsa_volume_for_device(main_device, (self.sum_left_volume, self.sum_right_volume))
+                    self._set_alsa_volume_for_device(main_device, (self.vox_volume, self.sub_volume))
                 except Exception:
                     pass
                 p1 = start_loop_playback(primary_path, main_device)
@@ -452,9 +558,9 @@ class MP3Player:
         primary_path, secondary_path = self._get_playback_paths()
 
         if self.playback_mode == "2ch":
-            # 2ch mode: play sum only
+            # 2ch mode: play sum only (vox=left, sub=right)
             pygame.mixer.music.load(primary_path)
-            pygame.mixer.music.set_volume((self.sum_left_volume + self.sum_right_volume) / 2)
+            pygame.mixer.music.set_volume((self.vox_volume + self.sub_volume) / 2)
             pygame.mixer.music.play(loops=-1)
             self._playing = True
         else:
@@ -582,7 +688,7 @@ class MP3Player:
     # --- EQ Methods ---
 
     def _ensure_eq_processed(self):
-        """Process audio files with current EQ settings if needed."""
+        """Process audio files with current EQ/volume settings if needed."""
         if not self._eq_dirty:
             return
 
@@ -590,21 +696,26 @@ class MP3Player:
         self._cleanup_processed_files()
 
         if self.playback_mode == "2ch":
-            # Process sum track
-            if self.sum_path and self.sum_eq.has_active_eq():
+            # Process sum track with volume and EQ (vox=left, sub=right)
+            # Always attempt processing - method returns None if not needed
+            if self.sum_path:
                 try:
-                    self._processed_sum_path = self.sum_eq.process_file(self.sum_path)
-                    print(f"Applied EQ to sum track: {self.sum_eq}")
+                    self._processed_sum_path = self._process_sum_file()
+                    if self._processed_sum_path:
+                        print("Processed sum track for playback")
                 except Exception as e:
-                    print(f"Warning: Could not apply EQ to sum track: {e}")
+                    print(f"Warning: Could not process sum track: {e}")
                     self._processed_sum_path = None
         else:
-            # 4ch mode: process vox_sub (with separate L/R EQ) and instruments
+            # 4ch mode: process vox_sub (with separate L/R volume and EQ) and instruments
+            # Always attempt processing - method returns None if not needed
             if self.vox_sub_path:
                 try:
                     self._processed_vox_sub_path = self._process_vox_sub_file()
+                    if self._processed_vox_sub_path:
+                        print("Processed vox_sub track for playback")
                 except Exception as e:
-                    print(f"Warning: Could not apply EQ to vox_sub track: {e}")
+                    print(f"Warning: Could not process vox_sub track: {e}")
                     self._processed_vox_sub_path = None
 
             # Process instruments (surround) track
@@ -654,8 +765,6 @@ class MP3Player:
             return self.sub_eq
         elif track_lower == "surround":
             return self.surround_eq
-        elif track_lower == "sum":
-            return self.sum_eq
         # Legacy support
         elif track_lower == "centre":
             return self.vox_eq

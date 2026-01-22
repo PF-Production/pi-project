@@ -15,16 +15,16 @@ Uses 2 stereo audio files routed to 2 separate hardware outputs:
 
 ### 2-Channel Mode
 
-Uses a single stereo file for simple 1.1 playback:
+Uses a single stereo file for 1.1 playback with independent left/right volume control:
 
-- **sum.wav**: L channel → Mono mix, R channel → Sub
+- **sum.wav**: L channel → Vox (mono/centre), R channel → Sub
 
 ## Features
 
 - **Multi-output support**: Route different audio streams to separate ALSA devices on Raspberry Pi
-- **2ch/4ch modes**: Switch between full mix stereo or split 4-channel surround
-- **Per-channel volume control**: Adjust Vox, Sub, Surround L/R independently
-- **Per-channel EQ**: 4-band parametric EQ for each channel (vox, sub, surround, sum)
+- **2ch/4ch modes**: Switch between 1.1 mix or split 4-channel surround
+- **Per-channel volume control**: Adjust Vox (left), Sub (right), and Surround L/R independently
+- **Per-channel EQ**: 4-band parametric EQ for vox (left), sub (right), and surround
 - **Easy configuration**: Interactive setup wizard to detect and configure audio devices
 - **Remote Control**: Control playback, volume, and EQ remotely via TCP
 - **Cross-platform**: Works on Raspberry Pi (ALSA) and macOS (pygame)
@@ -68,7 +68,7 @@ This interactive wizard lets you:
 
 - Select playback mode (2ch or 4ch)
 - Select which audio device to use for each output
-- Set volume levels for each channel (Vox, Sub, Surround L/R or Sum L/R)
+- Set volume levels for each channel (Vox, Sub, Surround L/R)
 - Define daily start/stop times for playback using the Pi's internal clock
 - Configure a remote control port
 - Save configuration to `.env.local`
@@ -174,18 +174,15 @@ Settings are saved in `.env.local` with the following variables:
 PLAYBACK_MODE=4ch
 
 # Use stable device names (recommended) - these don't change on reboot
-AUDIO_DEVICE_1=plughw:CARD=Headphones,DEV=0   # Device 1 (vox+sub in 4ch, sum in 2ch)
-AUDIO_DEVICE_2=plughw:CARD=Device,DEV=0       # Device 2 (surround in 4ch mode)
+AUDIO_DEVICE_1=plughw:CARD=Headphones,DEV=0   # Device 1 (vox+sub in both 2ch and 4ch)
+AUDIO_DEVICE_2=plughw:CARD=Device,DEV=0       # Device 2 (surround in 4ch mode only)
 
-# 4ch mode volumes (0.0-1.0)
-VOX_VOLUME=0.5              # Vox (centre speaker) volume
-SUB_VOLUME=0.5              # Sub volume
-SURROUND_LEFT_VOLUME=0.5    # Surround left volume
-SURROUND_RIGHT_VOLUME=0.5   # Surround right volume
-
-# 2ch mode volumes (0.0-1.0)
-SUM_LEFT_VOLUME=0.5         # Sum left volume
-SUM_RIGHT_VOLUME=0.5        # Sum right volume
+# Volume settings (0.0 to 1.0)
+# VOX and SUB are used in both 2ch and 4ch modes
+VOX_VOLUME=0.5              # Vox (left channel) volume
+SUB_VOLUME=0.5              # Sub (right channel) volume
+SURROUND_LEFT_VOLUME=0.5    # Surround left volume (4ch mode only)
+SURROUND_RIGHT_VOLUME=0.5   # Surround right volume (4ch mode only)
 
 # Schedule
 PLAY_START_TIME=08:00       # Optional local start time (HH:MM, 24h)
@@ -271,17 +268,14 @@ amixer -c 1 set Master 60%
 Runtime volume adjustments:
 
 ```python
-# set vox (centre speaker) volume
+# set vox (left channel) volume - works in both 2ch and 4ch modes
 player.set_vox_volume(0.6)
 
-# set sub volume
+# set sub (right channel) volume - works in both 2ch and 4ch modes
 player.set_sub_volume(0.5)
 
-# set surround volumes
+# set surround volumes (4ch mode only)
 player.set_surround_volumes(left_volume=0.5, right_volume=0.5)
-
-# set sum volumes (2ch mode)
-player.set_sum_volumes(left_volume=0.6, right_volume=0.6)
 ```
 
 ### Remote Control
@@ -298,16 +292,15 @@ Once connected, you can:
 - `status` – Check if playing, mode, current volumes, and schedule
 - `play` – Start playback immediately
 - `stop` – Stop playback immediately
-- `vox <0-1>` – Set vox (centre speaker) volume
-- `sub <0-1>` – Set sub volume
-- `surround <0-1>` – Set surround volume (both L/R)
-- `sum <0-1>` – Set sum volume (2ch mode)
+- `vox <0-1>` – Set vox (left channel) volume
+- `sub <0-1>` – Set sub (right channel) volume
+- `surround <0-1>` – Set surround volume (both L/R, 4ch mode only)
 - `time` – Show current schedule times
 - `time start <HH:MM>` – Set start time (24h format)
 - `time stop <HH:MM>` – Set stop time (24h format)
 - `time clear` – Clear schedule (play immediately on boot)
 - `eq` – Show all EQ settings
-- `eq vox|sub|surround|sum` – Show EQ for specific track
+- `eq vox|sub|surround` – Show EQ for specific track
 - `eq <track> <band> freq|gain|width <value>` – Set EQ parameter
 - `eq apply` – Apply EQ changes
 - `save` – Save current settings to .env.local

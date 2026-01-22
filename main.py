@@ -87,13 +87,13 @@ class RemoteControl:
             end_time = os.getenv("PLAY_END_TIME", "")
             schedule = f"schedule={start_time}-{end_time}" if start_time and end_time else "schedule=none"
 
+            # vox and sub are used in both 2ch and 4ch modes
+            vox = getattr(self.player, "vox_volume", 0.5)
+            sub = getattr(self.player, "sub_volume", 0.5)
+
             if mode == "2ch":
-                sum_l = getattr(self.player, "sum_left_volume", 0.5)
-                sum_r = getattr(self.player, "sum_right_volume", 0.5)
-                return f"status: {state} mode={mode} sum_l={sum_l:.2f} sum_r={sum_r:.2f} {schedule}"
+                return f"status: {state} mode={mode} vox={vox:.2f} sub={sub:.2f} {schedule}"
             else:
-                vox = getattr(self.player, "vox_volume", 0.5)
-                sub = getattr(self.player, "sub_volume", 0.5)
                 surround_l = getattr(self.player, "surround_left_volume", 0.5)
                 surround_r = getattr(self.player, "surround_right_volume", 0.5)
                 return (
@@ -121,7 +121,7 @@ class RemoteControl:
                 if vol < 0.0 or vol > 1.0:
                     return "error: volume must be between 0.0 and 1.0"
                 self.player.set_vox_volume(vol)
-                return f"ok: vox={vol:.2f}"
+                return f"ok: vox={vol:.2f} (use 'eq apply' to apply)"
             vox_vol = getattr(self.player, "vox_volume", 0.5)
             return f"vox: {vox_vol:.2f}"
         except ValueError as e:
@@ -144,7 +144,7 @@ class RemoteControl:
                 if vol < 0.0 or vol > 1.0:
                     return "error: volume must be between 0.0 and 1.0"
                 self.player.set_sub_volume(vol)
-                return f"ok: sub={vol:.2f}"
+                return f"ok: sub={vol:.2f} (use 'eq apply' to apply)"
             sub_vol = getattr(self.player, "sub_volume", 0.5)
             return f"sub: {sub_vol:.2f}"
         except ValueError as e:
@@ -181,34 +181,6 @@ class RemoteControl:
         """Handle stereo command (alias for surround)."""
         return self._handle_surround(parts)
 
-    def _handle_sum(self, parts):
-        """Handle sum (2ch mode) volume command."""
-        try:
-            if len(parts) > 1:
-                vol = float(parts[1])
-                if vol < 0.0 or vol > 1.0:
-                    return "error: volume must be between 0.0 and 1.0"
-                self.player.set_sum_volumes(vol, vol)
-                return f"ok: sum={vol:.2f}"
-            sum_l = getattr(self.player, "sum_left_volume", 0.5)
-            sum_r = getattr(self.player, "sum_right_volume", 0.5)
-            return f"sum: L={sum_l:.2f} R={sum_r:.2f}"
-        except ValueError as e:
-            return f"error: invalid volume value: {e}"
-        except Exception as e:
-            print(f"Unexpected error in _handle_sum: {e}")
-            import traceback
-
-            traceback.print_exc()
-            return f"error: {e}"
-            return f"error: invalid volume value: {e}"
-        except Exception as e:
-            print(f"Unexpected error in _handle_stereo: {e}")
-            import traceback
-
-            traceback.print_exc()
-            return f"error: {e}"
-
     def _handle_save(self, parts):
         try:
             from eq_processor import save_eq_to_env_dict
@@ -225,22 +197,18 @@ class RemoteControl:
             new_lines = []
             updated_keys = set()
 
-            # Build updates based on mode
-            if mode == "2ch":
-                updates = {
-                    "SUM_LEFT_VOLUME": f"{self.player.sum_left_volume:.2f}",
-                    "SUM_RIGHT_VOLUME": f"{self.player.sum_right_volume:.2f}",
-                }
-                updates.update(save_eq_to_env_dict(self.player.sum_eq, "sum"))
-            else:
-                updates = {
-                    "VOX_VOLUME": f"{self.player.vox_volume:.2f}",
-                    "SUB_VOLUME": f"{self.player.sub_volume:.2f}",
-                    "SURROUND_LEFT_VOLUME": f"{self.player.surround_left_volume:.2f}",
-                    "SURROUND_RIGHT_VOLUME": f"{self.player.surround_right_volume:.2f}",
-                }
-                updates.update(save_eq_to_env_dict(self.player.vox_eq, "vox"))
-                updates.update(save_eq_to_env_dict(self.player.sub_eq, "sub"))
+            # Build updates - vox/sub volumes and EQ are used in both modes
+            updates = {
+                "VOX_VOLUME": f"{self.player.vox_volume:.2f}",
+                "SUB_VOLUME": f"{self.player.sub_volume:.2f}",
+            }
+            # vox and sub EQ are used in both 2ch and 4ch modes
+            updates.update(save_eq_to_env_dict(self.player.vox_eq, "vox"))
+            updates.update(save_eq_to_env_dict(self.player.sub_eq, "sub"))
+
+            if mode == "4ch":
+                updates["SURROUND_LEFT_VOLUME"] = f"{self.player.surround_left_volume:.2f}"
+                updates["SURROUND_RIGHT_VOLUME"] = f"{self.player.surround_right_volume:.2f}"
                 updates.update(save_eq_to_env_dict(self.player.surround_eq, "surround"))
 
             for line in lines:
@@ -270,23 +238,22 @@ class RemoteControl:
         Handle EQ commands.
         Syntax:
           eq                           - Show all EQ settings
-          eq vox|sub|surround|sum      - Show EQ for specific track
+          eq vox|sub|surround          - Show EQ for specific track
           eq <track> <band>            - Show specific band (1-4)
           eq <track> <band> freq|gain|width <value> - Set parameter
           eq apply                     - Apply changes and restart playback
         """
         try:
-            valid_tracks = ("vox", "sub", "surround", "sum", "centre", "stereo")
+            valid_tracks = ("vox", "sub", "surround", "centre", "stereo")
 
             if len(parts) == 1:
                 # Show all EQ settings based on mode
                 mode = getattr(self.player, "playback_mode", "4ch")
+                vox_eq = self.player.get_all_eq("vox")
+                sub_eq = self.player.get_all_eq("sub")
                 if mode == "2ch":
-                    sum_eq = self.player.get_all_eq("sum")
-                    return f"eq (2ch mode): sum={sum_eq}"
+                    return f"eq (2ch mode): vox={vox_eq} sub={sub_eq}"
                 else:
-                    vox_eq = self.player.get_all_eq("vox")
-                    sub_eq = self.player.get_all_eq("sub")
                     surround_eq = self.player.get_all_eq("surround")
                     return f"eq (4ch mode): vox={vox_eq} sub={sub_eq} surround={surround_eq}"
 
@@ -413,7 +380,6 @@ class RemoteControl:
             "sub": self._handle_sub,
             "surround": self._handle_surround,
             "stereo": self._handle_stereo,
-            "sum": self._handle_sum,
             "save": self._handle_save,
             "eq": self._handle_eq,
             "time": self._handle_time,
@@ -460,8 +426,6 @@ def _get_volumes():
         "sub": float(os.getenv("SUB_VOLUME", 0.5)),
         "surround_left": float(os.getenv("SURROUND_LEFT_VOLUME", 0.5)),
         "surround_right": float(os.getenv("SURROUND_RIGHT_VOLUME", 0.5)),
-        "sum_left": float(os.getenv("SUM_LEFT_VOLUME", 0.5)),
-        "sum_right": float(os.getenv("SUM_RIGHT_VOLUME", 0.5)),
     }
 
 
@@ -520,8 +484,6 @@ def main():
         sub_volume=volumes["sub"],
         surround_left_volume=volumes["surround_left"],
         surround_right_volume=volumes["surround_right"],
-        sum_left_volume=volumes["sum_left"],
-        sum_right_volume=volumes["sum_right"],
     )
 
     _setup_remote(player)
