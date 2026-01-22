@@ -82,10 +82,15 @@ class RemoteControl:
             state = "playing" if self.player.is_playing() else "stopped"
             mode = getattr(self.player, "playback_mode", "4ch")
 
+            # Get schedule times
+            start_time = os.getenv("PLAY_START_TIME", "")
+            end_time = os.getenv("PLAY_END_TIME", "")
+            schedule = f"schedule={start_time}-{end_time}" if start_time and end_time else "schedule=none"
+
             if mode == "2ch":
                 sum_l = getattr(self.player, "sum_left_volume", 0.5)
                 sum_r = getattr(self.player, "sum_right_volume", 0.5)
-                return f"status: {state} mode={mode} sum_l={sum_l:.2f} sum_r={sum_r:.2f}"
+                return f"status: {state} mode={mode} sum_l={sum_l:.2f} sum_r={sum_r:.2f} {schedule}"
             else:
                 vox = getattr(self.player, "vox_volume", 0.5)
                 sub = getattr(self.player, "sub_volume", 0.5)
@@ -93,7 +98,7 @@ class RemoteControl:
                 surround_r = getattr(self.player, "surround_right_volume", 0.5)
                 return (
                     f"status: {state} mode={mode} vox={vox:.2f} sub={sub:.2f} "
-                    f"surround_l={surround_l:.2f} surround_r={surround_r:.2f}"
+                    f"surround_l={surround_l:.2f} surround_r={surround_r:.2f} {schedule}"
                 )
         except Exception as e:
             return f"error: status failed {e}"
@@ -338,6 +343,49 @@ class RemoteControl:
         except Exception as e:
             return f"error: eq command failed: {e}"
 
+    def _handle_time(self, parts):
+        """Handle time command to view/set schedule times."""
+        try:
+            start = os.getenv("PLAY_START_TIME", "")
+            end = os.getenv("PLAY_END_TIME", "")
+
+            if len(parts) == 1:
+                # Show current times
+                if start and end:
+                    return f"time: start={start} stop={end}"
+                return "time: schedule not set"
+
+            if len(parts) == 2:
+                arg = parts[1].lower()
+                if arg == "clear":
+                    os.environ["PLAY_START_TIME"] = ""
+                    os.environ["PLAY_END_TIME"] = ""
+                    return "ok: schedule cleared (use 'save' to persist)"
+                return "error: usage: time [start <HH:MM>] [stop <HH:MM>] or time clear"
+
+            if len(parts) >= 3:
+                action = parts[1].lower()
+                value = parts[2]
+
+                # Validate time format
+                try:
+                    datetime.strptime(value, "%H:%M")
+                except ValueError:
+                    return f"error: invalid time format '{value}'. Use HH:MM (24h)"
+
+                if action == "start":
+                    os.environ["PLAY_START_TIME"] = value
+                    return f"ok: start={value} (use 'save' to persist)"
+                elif action == "stop":
+                    os.environ["PLAY_END_TIME"] = value
+                    return f"ok: stop={value} (use 'save' to persist)"
+                else:
+                    return f"error: unknown action '{action}'. Use 'start' or 'stop'"
+
+            return "error: usage: time [start <HH:MM>] [stop <HH:MM>] or time clear"
+        except Exception as e:
+            return f"error: time command failed: {e}"
+
     def _handle_reboot(self, parts):
         """Reboot the Raspberry Pi."""
         try:
@@ -368,6 +416,7 @@ class RemoteControl:
             "sum": self._handle_sum,
             "save": self._handle_save,
             "eq": self._handle_eq,
+            "time": self._handle_time,
             "reboot": self._handle_reboot,
         }
 

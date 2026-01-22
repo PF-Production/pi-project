@@ -25,12 +25,11 @@ setup:
         sudo apt-get install -y python3-dev python3-numpy python3-scipy libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev libjpeg-dev pkg-config alsa-utils; \
         echo "Creating venv with access to system numpy/scipy..."; \
         uv venv --system-site-packages; \
-        echo "Syncing base deps..."; \
+        echo "Syncing deps..."; \
         uv sync; \
-        echo "Installing player extras (pygame) after system deps are present..."; \
-        uv sync --extra player || true; \
     else \
         uv sync; \
+        uv sync --extra player; \
     fi
     uv pip install ruff
     @if ! [ -f .env.local ]; then \
@@ -40,7 +39,7 @@ setup:
     @echo "Creating files directory..."
     @mkdir -p files
     @echo "Downloading audio files..."
-    @if [ ! -f files/centre.wav ] || [ ! -f files/stereo.wav ]; then \
+    @if [ ! -f files/sum.wav ] || [ ! -f files/instruments.wav ] || [ ! -f files/vox_sub.wav ]; then \
         uv run scripts/download_files.py || echo "Note: Download failed. Please manually populate .env.local with URLs and run 'just download'"; \
     else \
         echo "Audio files already exist, skipping download"; \
@@ -52,6 +51,21 @@ download:
     @echo "Downloading audio files..."
     uv run scripts/download_files.py
     @echo "✓ Files downloaded"
+
+# Install EQ dependencies (scipy/numpy) - for macOS development only
+setup-eq: setup
+    @echo "Installing EQ dependencies (scipy/numpy)..."
+    @echo "NOTE: On Raspberry Pi, skip this - scipy/numpy are installed via apt"
+    uv sync --extra eq --extra player
+    @echo "✓ EQ dependencies installed"
+
+# Redownload audio files, replacing existing ones
+refresh:
+    @echo "Removing existing audio files..."
+    rm -f files/sum.wav files/instruments.wav files/vox_sub.wav
+    @echo "Downloading fresh audio files..."
+    uv run scripts/download_files.py
+    @echo "✓ Files refreshed"
 
 # Clean build artifacts and cache files
 clean:

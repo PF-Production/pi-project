@@ -8,7 +8,6 @@ version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "pydub" },
-    { name = "pygame" },
     { name = "python-dotenv" },
     { name = "rust-just" },
 ]
@@ -18,17 +17,20 @@ eq = [
     { name = "numpy" },
     { name = "scipy" },
 ]
+player = [
+    { name = "pygame" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "numpy", marker = "extra == 'eq'", specifier = ">=1.24.0" },
     { name = "pydub", specifier = ">=0.25.1" },
-    { name = "pygame", specifier = ">=2.6.1" },
+    { name = "pygame", marker = "extra == 'player'", specifier = ">=2.6.1" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rust-just", specifier = ">=1.43.1" },
     { name = "scipy", marker = "extra == 'eq'", specifier = ">=1.11.0" },
 ]
-provides-extras = ["eq"]
+provides-extras = ["eq", "player"]
 
 [[package]]
 name = "numpy"

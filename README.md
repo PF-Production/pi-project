@@ -112,7 +112,7 @@ Connect to the running player from another terminal:
 # Connect to local player
 just remote
 
-# Connect to remote Pi
+# Connect to remote Pi. Try 127.0.0.1 first if on the same machine
 just remote <PI_IP_ADDRESS>
 ```
 
@@ -124,10 +124,12 @@ The project uses [just](https://github.com/casey/just) for common tasks:
 
 ```bash
 just setup     # Install dependencies and system packages
+just setup-eq  # Install EQ dependencies (scipy/numpy) - macOS only
 just info      # Show audio devices and current configuration
 just config    # Interactive setup wizard for devices and volumes
 just play      # Run the audio player. Run `just play-now` to ignore schedule
 just download  # Download audio files specified in .env.local
+just refresh   # Redownload audio files, replacing existing ones
 just install-service # Install systemd service on Raspberry Pi
 just restart   # Restart the service after code changes
 just remote    # Connect to running player via TCP
@@ -293,13 +295,17 @@ just remote <PI_IP_ADDRESS>
 
 Once connected, you can:
 
-- `status` – Check if playing, mode, and current volumes
+- `status` – Check if playing, mode, current volumes, and schedule
 - `play` – Start playback immediately
 - `stop` – Stop playback immediately
 - `vox <0-1>` – Set vox (centre speaker) volume
 - `sub <0-1>` – Set sub volume
 - `surround <0-1>` – Set surround volume (both L/R)
 - `sum <0-1>` – Set sum volume (2ch mode)
+- `time` – Show current schedule times
+- `time start <HH:MM>` – Set start time (24h format)
+- `time stop <HH:MM>` – Set stop time (24h format)
+- `time clear` – Clear schedule (play immediately on boot)
 - `eq` – Show all EQ settings
 - `eq vox|sub|surround|sum` – Show EQ for specific track
 - `eq <track> <band> freq|gain|width <value>` – Set EQ parameter
