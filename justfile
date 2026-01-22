@@ -77,6 +77,7 @@ clean:
     find . -type f -name "*.pyc" -delete 2>/dev/null || true
     find . -type f -name ".DS_Store" -delete 2>/dev/null || true
     rm -rf build/ dist/ .venv/ 2>/dev/null || true
+    rm -f .env.local 2>/dev/null || true
     @echo "✓ Clean complete"
 
 # Check code formatting and linting
