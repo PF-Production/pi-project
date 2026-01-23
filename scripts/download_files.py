@@ -22,6 +22,7 @@ FILE_MAPPINGS = {
     "WAV_SUM_URL": "files/sum.wav",
     "WAV_INSTRUMENTS_URL": "files/instruments.wav",
     "WAV_VOX_SUB_URL": "files/vox_sub.wav",
+    "LOOP_TRACK_URL": "files/loop.wav",
 }
 
 

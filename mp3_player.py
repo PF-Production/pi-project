@@ -22,12 +22,16 @@ class MP3Player:
         sum_path="./files/sum.wav",
         instruments_path="./files/instruments.wav",
         vox_sub_path="./files/vox_sub.wav",
+        loop_path="./files/loop.wav",
         audio_device=None,
         # Volume settings
         vox_volume=0.5,
         sub_volume=0.5,
         surround_left_volume=0.5,
         surround_right_volume=0.5,
+        # Loop mask track settings
+        loop_volume=0.5,
+        loop_lead_time=60,
         # EQ processors (optional, loaded from env if None)
         vox_eq=None,
         sub_eq=None,
@@ -43,16 +47,22 @@ class MP3Player:
         In both modes, vox_volume controls the left channel (vox/mono) and
         sub_volume controls the right channel (sub).
 
+        Loop mask track: An optional short audio file that plays near the end of each
+        main track loop to mask the loop point transition.
+
         Args:
             playback_mode: "2ch" or "4ch"
             sum_path: Path to 1.1 mix stereo file - L=vox/mono, R=sub (2ch mode)
             instruments_path: Path to L-R instruments/surround file (4ch mode)
             vox_sub_path: Path to vox(L)/sub(R) file (4ch mode)
+            loop_path: Path to loop mask audio file
             audio_device: None, single device string, or tuple (device1, device2)
             vox_volume: Vox/mono channel volume - left channel (0.0-1.0)
             sub_volume: Sub channel volume - right channel (0.0-1.0)
             surround_left_volume: Surround left volume (0.0-1.0, 4ch mode only)
             surround_right_volume: Surround right volume (0.0-1.0, 4ch mode only)
+            loop_volume: Loop mask track volume (0.0-1.0)
+            loop_lead_time: Seconds before main track ends to start loop mask
         """
         self._subprocs = []
 
@@ -63,6 +73,7 @@ class MP3Player:
         self.sum_path = sum_path
         self.instruments_path = instruments_path
         self.vox_sub_path = vox_sub_path
+        self.loop_path = loop_path
 
         # Volume settings
         # vox_volume: left channel (vox/mono) in both 2ch and 4ch modes
@@ -71,6 +82,13 @@ class MP3Player:
         self.sub_volume = sub_volume
         self.surround_left_volume = surround_left_volume
         self.surround_right_volume = surround_right_volume
+
+        # Loop mask track settings
+        self.loop_volume = loop_volume
+        self.loop_lead_time = loop_lead_time
+        self._loop_timer_thread = None
+        self._loop_proc = None  # Subprocess for loop mask playback
+        self._main_track_duration = None  # Duration of main track in seconds
 
         # EQ processors for each channel
         # vox_eq: left channel EQ (vox/mono) - used in both 2ch and 4ch modes
@@ -354,6 +372,129 @@ class MP3Player:
         """Set second track volume (surround in 4ch)."""
         self.set_surround_volumes(volume, volume)
 
+    # --- Loop Mask Track Methods ---
+
+    def set_loop_volume(self, volume):
+        """Set loop mask track volume."""
+        self.loop_volume = max(0.0, min(1.0, volume))
+
+    def set_loop_lead_time(self, seconds):
+        """Set how many seconds before loop end to start the mask track."""
+        self.loop_lead_time = max(0.0, seconds)
+
+    def _get_wav_duration(self, path):
+        """Get duration of a WAV file in seconds."""
+        if not path or not os.path.exists(path):
+            return None
+        try:
+            sample_rate, data = wavfile.read(path)
+            return len(data) / sample_rate
+        except Exception as e:
+            print(f"Warning: Could not get duration of {path}: {e}")
+            return None
+
+    def _start_loop_mask_timer(self, main_track_path, device):
+        """Start a timer thread that triggers the loop mask at the right time."""
+        if not self.loop_path or not os.path.exists(self.loop_path):
+            return  # No loop mask file
+
+        duration = self._get_wav_duration(main_track_path)
+        if duration is None:
+            return
+
+        self._main_track_duration = duration
+
+        # Calculate when to trigger (relative to loop start)
+        trigger_time = max(0, duration - self.loop_lead_time)
+
+        def _loop_timer():
+            """Timer thread that triggers loop mask playback."""
+            import time as time_module
+
+            loop_start = time_module.time()
+
+            while self._playing:
+                elapsed = time_module.time() - loop_start
+                time_in_loop = elapsed % duration
+
+                # Check if we should trigger the loop mask
+                if time_in_loop >= trigger_time and time_in_loop < trigger_time + 1:
+                    self._play_loop_mask(device)
+                    # Wait until next loop cycle
+                    time_module.sleep(self.loop_lead_time + 2)
+                    continue
+
+                time_module.sleep(0.5)
+
+        self._loop_timer_thread = threading.Thread(target=_loop_timer, daemon=True)
+        self._loop_timer_thread.start()
+
+    def _play_loop_mask(self, device):
+        """Play the loop mask track once."""
+        if not self.loop_path or not os.path.exists(self.loop_path):
+            return
+
+        if self._use_subprocess and device:
+            try:
+                # Apply volume by processing the file (simple amplitude scaling)
+                loop_file = self._process_loop_file()
+
+                # Play the loop mask file once (not looping)
+                cmd = ["aplay", "-D", device, loop_file]
+                self._loop_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as e:
+                print(f"Warning: Could not play loop mask: {e}")
+        else:
+            # pygame fallback - just play the sound
+            try:
+                if not pygame.mixer.get_init():
+                    pygame.mixer.init()
+                sound = pygame.mixer.Sound(self.loop_path)
+                sound.set_volume(self.loop_volume)
+                sound.play()
+            except Exception as e:
+                print(f"Warning: Could not play loop mask with pygame: {e}")
+
+    def _process_loop_file(self):
+        """Process loop file with volume adjustment. Returns path to processed file."""
+        if self.loop_volume == 1.0:
+            return self.loop_path  # No processing needed
+
+        try:
+            sample_rate, data = wavfile.read(self.loop_path)
+
+            # Convert to float for processing
+            if data.dtype == np.int16:
+                audio_float = data.astype(np.float64) / 32768.0
+            elif data.dtype == np.int32:
+                audio_float = data.astype(np.float64) / 2147483648.0
+            else:
+                audio_float = data.astype(np.float64)
+
+            # Apply volume
+            audio_float = audio_float * self.loop_volume
+
+            # Clip to prevent distortion
+            audio_float = np.clip(audio_float, -1.0, 1.0)
+
+            # Convert back
+            if data.dtype == np.int16:
+                processed = (audio_float * 32767).astype(np.int16)
+            elif data.dtype == np.int32:
+                processed = (audio_float * 2147483647).astype(np.int32)
+            else:
+                processed = audio_float
+
+            # Write to temp file
+            fd, temp_path = tempfile.mkstemp(suffix=".wav")
+            os.close(fd)
+            wavfile.write(temp_path, sample_rate, processed)
+            return temp_path
+
+        except Exception as e:
+            print(f"Warning: Could not process loop file: {e}")
+            return self.loop_path
+
     def _process_vox_sub_file(self):
         """
         Process vox_sub.wav applying separate volume and EQ to left (vox) and right (sub) channels.
@@ -552,6 +693,10 @@ class MP3Player:
         self._subprocs = procs
         self._playing = len(procs) > 0
 
+        # Start loop mask timer if enabled
+        if self._playing and main_device:
+            self._start_loop_mask_timer(primary_path, main_device)
+
     def _start_pygame_playback(self):
         """Start pygame-based playback for single default output."""
         # Get EQ-processed paths (or originals if no EQ)
@@ -633,6 +778,19 @@ class MP3Player:
                         pass
             self._subprocs = []
             self._playing = False
+
+            # Stop loop mask timer and any playing loop mask
+            self._loop_timer_thread = None
+            if self._loop_proc:
+                try:
+                    self._loop_proc.terminate()
+                    self._loop_proc.wait(timeout=1)
+                except Exception:
+                    try:
+                        self._loop_proc.kill()
+                    except Exception:
+                        pass
+                self._loop_proc = None
         else:
             pygame.mixer.music.stop()
             if self._pygame_channel2:

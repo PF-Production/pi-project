@@ -87,18 +87,23 @@ class RemoteControl:
             end_time = os.getenv("PLAY_END_TIME", "")
             schedule = f"schedule={start_time}-{end_time}" if start_time and end_time else "schedule=none"
 
+            # Loop mask settings (always show, defaults to on)
+            loop_vol = getattr(self.player, "loop_volume", 0.5)
+            loop_lead = getattr(self.player, "loop_lead_time", 60)
+            loop_info = f"loop={loop_vol:.2f} lead={int(loop_lead)}s"
+
             # vox and sub are used in both 2ch and 4ch modes
             vox = getattr(self.player, "vox_volume", 0.5)
             sub = getattr(self.player, "sub_volume", 0.5)
 
             if mode == "2ch":
-                return f"status: {state} mode={mode} vox={vox:.2f} sub={sub:.2f} {schedule}"
+                return f"status: {state} mode={mode} vox={vox:.2f} sub={sub:.2f} {loop_info} {schedule}"
             else:
                 surround_l = getattr(self.player, "surround_left_volume", 0.5)
                 surround_r = getattr(self.player, "surround_right_volume", 0.5)
                 return (
                     f"status: {state} mode={mode} vox={vox:.2f} sub={sub:.2f} "
-                    f"surround_l={surround_l:.2f} surround_r={surround_r:.2f} {schedule}"
+                    f"surround_l={surround_l:.2f} surround_r={surround_r:.2f} {loop_info} {schedule}"
                 )
         except Exception as e:
             return f"error: status failed {e}"
@@ -201,6 +206,8 @@ class RemoteControl:
             updates = {
                 "VOX_VOLUME": f"{self.player.vox_volume:.2f}",
                 "SUB_VOLUME": f"{self.player.sub_volume:.2f}",
+                "LOOP_VOLUME": f"{getattr(self.player, 'loop_volume', 0.5):.2f}",
+                "LOOP_LEAD_TIME": f"{int(getattr(self.player, 'loop_lead_time', 60))}",
             }
             # vox and sub EQ are used in both 2ch and 4ch modes
             updates.update(save_eq_to_env_dict(self.player.vox_eq, "vox"))
@@ -364,6 +371,34 @@ class RemoteControl:
         except Exception as e:
             return f"error: reboot failed: {e}"
 
+    def _handle_loop(self, parts):
+        """Handle loop mask track commands."""
+        try:
+            if len(parts) == 1:
+                return "error: usage: loop <0-1> or loop lead <seconds>"
+
+            action = parts[1].lower()
+
+            # Check if it's "loop lead <secs>"
+            if action == "lead" and len(parts) >= 3:
+                lead = float(parts[2])
+                if lead < 0:
+                    return "error: lead time must be positive"
+                self.player.set_loop_lead_time(lead)
+                return f"ok: loop lead={lead:.0f}s"
+
+            # Otherwise treat as "loop <val>" for volume
+            vol = float(action)
+            if vol < 0.0 or vol > 1.0:
+                return "error: volume must be between 0.0 and 1.0"
+            self.player.set_loop_volume(vol)
+            return f"ok: loop={vol:.2f}"
+
+        except ValueError as e:
+            return f"error: invalid value: {e}"
+        except Exception as e:
+            return f"error: loop command failed: {e}"
+
     def _process_command(self, command):
         parts = command.split()
         if not parts:
@@ -383,6 +418,7 @@ class RemoteControl:
             "save": self._handle_save,
             "eq": self._handle_eq,
             "time": self._handle_time,
+            "loop": self._handle_loop,
             "reboot": self._handle_reboot,
         }
 
@@ -426,6 +462,8 @@ def _get_volumes():
         "sub": float(os.getenv("SUB_VOLUME", 0.5)),
         "surround_left": float(os.getenv("SURROUND_LEFT_VOLUME", 0.5)),
         "surround_right": float(os.getenv("SURROUND_RIGHT_VOLUME", 0.5)),
+        "loop": float(os.getenv("LOOP_VOLUME", 0.5)),
+        "loop_lead_time": float(os.getenv("LOOP_LEAD_TIME", 60)),
     }
 
 
@@ -479,11 +517,14 @@ def main():
         sum_path="./files/sum.wav",
         instruments_path="./files/instruments.wav",
         vox_sub_path="./files/vox_sub.wav",
+        loop_path="./files/loop.wav",
         audio_device=audio_device,
         vox_volume=volumes["vox"],
         sub_volume=volumes["sub"],
         surround_left_volume=volumes["surround_left"],
         surround_right_volume=volumes["surround_right"],
+        loop_volume=volumes["loop"],
+        loop_lead_time=volumes["loop_lead_time"],
     )
 
     _setup_remote(player)

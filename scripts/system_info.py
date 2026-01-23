@@ -187,6 +187,7 @@ def main():
         "Sum (Full Mix)": "./files/sum.wav",
         "Instruments (Surround)": "./files/instruments.wav",
         "Vox+Sub": "./files/vox_sub.wav",
+        "Loop Mask": "./files/loop.wav",
     }
 
     for name, path in audio_files.items():

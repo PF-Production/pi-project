@@ -34,6 +34,8 @@ def handle_command_loop(sock):
                     "  vox <val>           - Set vox (left channel) volume (0.0-1.0)\n"
                     "  sub <val>           - Set sub (right channel) volume (0.0-1.0)\n"
                     "  surround <val>      - Set surround volume (0.0-1.0, 4ch only)\n"
+                    "  loop <val>          - Set loop mask volume (0.0-1.0)\n"
+                    "  loop lead <secs>    - Set loop mask lead time in seconds\n"
                     "  time start <HH:MM>  - Set start time (24h format)\n"
                     "  time stop <HH:MM>   - Set stop time (24h format)\n"
                     "  eq                  - Show all EQ settings\n"
