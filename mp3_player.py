@@ -1,7 +1,6 @@
 import os
 import platform
 import shutil
-import signal
 import subprocess
 import tempfile
 import threading
@@ -108,6 +107,7 @@ class MP3Player:
         self._pygame_channel2 = None
         self._playing = False
         self._thread = None
+        self._playback_thread = None  # Thread for schedule-aware looping
 
         # Playback source:
         # - None: not playing
@@ -185,6 +185,45 @@ class MP3Player:
             start_date = now_dt.date() if now_time >= start_time else (now_dt.date() - timedelta(days=1))
 
         return (start_date.isoformat(), start_time.strftime("%H:%M"), end_time.strftime("%H:%M"))
+
+    def _seconds_until_window_end(self):
+        """
+        Calculate how many seconds remain until the schedule window ends.
+        Returns None if no schedule is configured or we're outside the window.
+        Returns float('inf') if start_time == end_time (always on).
+        """
+        if self._schedule_start_time is None or self._schedule_end_time is None:
+            return None
+
+        start_time = self._schedule_start_time
+        end_time = self._schedule_end_time
+
+        # "Always on" case
+        if start_time == end_time:
+            return float("inf")
+
+        now_dt = datetime.now()
+        now_time = now_dt.time()
+
+        if not self._within_window_time(now_time, start_time, end_time):
+            return None
+
+        # Calculate seconds until end_time
+        today = now_dt.date()
+
+        if start_time < end_time:
+            # Same-day window: end is today
+            end_dt = datetime.combine(today, end_time)
+        else:
+            # Window wraps past midnight
+            if now_time >= start_time:
+                # We're before midnight, end is tomorrow
+                end_dt = datetime.combine(today + timedelta(days=1), end_time)
+            else:
+                # We're after midnight, end is today
+                end_dt = datetime.combine(today, end_time)
+
+        return (end_dt - now_dt).total_seconds()
 
     # --- ALSA volume helpers (best-effort using amixer) ---------------------------------
     def _card_from_device(self, device_str):
@@ -404,6 +443,9 @@ class MP3Player:
 
         self._main_track_duration = duration
 
+        # Get loop mask duration to check if there's time to play it
+        loop_mask_duration = self._get_wav_duration(self.loop_path) or 0
+
         # Calculate when to trigger (relative to loop start)
         trigger_time = max(0, duration - self.loop_lead_time)
 
@@ -419,7 +461,20 @@ class MP3Player:
 
                 # Check if we should trigger the loop mask
                 if time_in_loop >= trigger_time and time_in_loop < trigger_time + 1:
-                    self._play_loop_mask(device)
+                    # Check if there's enough time remaining in the schedule
+                    remaining = self._seconds_until_window_end()
+
+                    # Only play loop mask if:
+                    # - No schedule (remaining is None)
+                    # - Always-on schedule (remaining is inf)
+                    # - Enough time for the loop mask AND another full main track loop
+                    should_play_mask = (
+                        remaining is None or remaining == float("inf") or remaining >= (loop_mask_duration + duration)
+                    )
+
+                    if should_play_mask:
+                        self._play_loop_mask(device)
+
                     # Wait until next loop cycle
                     time_module.sleep(self.loop_lead_time + 2)
                     continue
@@ -641,88 +696,183 @@ class MP3Player:
     def _start_subprocess_playback(self):  # noqa: C901
         """Start subprocess-based ALSA playback for each device."""
         self.stop()
-        procs = []
 
         # Get EQ-processed paths (or originals if no EQ)
         primary_path, secondary_path = self._get_playback_paths()
 
-        def start_loop_playback(path, device):
-            if not path or not device:
-                return None
-            # Use a shell loop to re-run aplay so the audio repeats.
-            cmd = f"while true; do aplay -D {device} '{path}'; done"
-            # Start in a new session so we can reliably terminate the whole process group
-            # (the shell loop *and* any aplay child process) on stop().
-            return subprocess.Popen(["/bin/sh", "-c", cmd], start_new_session=True)
-
         main_device, second_device = self.devices if isinstance(self.devices, tuple) else (self.devices, None)
 
-        if self.playback_mode == "2ch":
-            # 2ch mode: play sum.wav to main device only (vox=left, sub=right)
-            if isinstance(main_device, str):
-                try:
-                    self._set_alsa_volume_for_device(main_device, (self.vox_volume, self.sub_volume))
-                except Exception:
-                    pass
-                p1 = start_loop_playback(primary_path, main_device)
-                if p1:
-                    procs.append(p1)
-        else:
-            # 4ch mode: play vox_sub to device 1, instruments to device 2
-            if isinstance(main_device, str):
-                try:
-                    self._set_alsa_volume_for_device(main_device, (self.vox_volume, self.sub_volume))
-                except Exception:
-                    pass
-                p1 = start_loop_playback(primary_path, main_device)
-                if p1:
-                    procs.append(p1)
+        # Get track duration for schedule-aware looping
+        track_duration = self._get_wav_duration(primary_path)
+        self._main_track_duration = track_duration
 
-            # Start second device playback (instruments/surround)
-            if secondary_path and isinstance(second_device, str):
-                try:
-                    self._set_alsa_volume_for_device(
-                        second_device, (self.surround_left_volume, self.surround_right_volume)
-                    )
-                except Exception:
-                    pass
-                p2 = start_loop_playback(secondary_path, second_device)
-                if p2:
-                    procs.append(p2)
+        def start_single_playback(path, device):
+            """Start a single (non-looping) aplay process."""
+            if not path or not device:
+                return None
+            cmd = ["aplay", "-D", device, path]
+            return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        self._subprocs = procs
-        self._playing = len(procs) > 0
+        def _playback_loop():  # noqa: C901
+            """Monitor playback and restart if enough time remains in schedule."""
+            import time as time_module
+
+            while self._playing:
+                # Check if we should start/restart playback
+                remaining = self._seconds_until_window_end()
+
+                # If no schedule or infinite (always on), or enough time for another loop
+                should_play = (
+                    remaining is None  # No schedule - always play
+                    or remaining == float("inf")  # Always-on schedule
+                    or (track_duration and remaining >= track_duration)  # Enough time for full loop
+                )
+
+                if not should_play:
+                    # Not enough time for another full loop - stop gracefully
+                    print(f"Stopping playback: {remaining:.0f}s remaining, track is {track_duration:.0f}s")
+                    self._playing = False
+                    # Clean up any running processes
+                    for p in self._subprocs:
+                        try:
+                            p.terminate()
+                            p.wait(timeout=2)
+                        except Exception:
+                            try:
+                                p.kill()
+                            except Exception:
+                                pass
+                    self._subprocs = []
+                    break
+
+                # Start playback processes if not already running
+                procs_running = all(p.poll() is None for p in self._subprocs if p)
+
+                if not procs_running or not self._subprocs:
+                    # (Re)start playback
+                    self._subprocs = []
+
+                    if self.playback_mode == "2ch":
+                        if isinstance(main_device, str):
+                            try:
+                                self._set_alsa_volume_for_device(main_device, (self.vox_volume, self.sub_volume))
+                            except Exception:
+                                pass
+                            p1 = start_single_playback(primary_path, main_device)
+                            if p1:
+                                self._subprocs.append(p1)
+                    else:
+                        # 4ch mode
+                        if isinstance(main_device, str):
+                            try:
+                                self._set_alsa_volume_for_device(main_device, (self.vox_volume, self.sub_volume))
+                            except Exception:
+                                pass
+                            p1 = start_single_playback(primary_path, main_device)
+                            if p1:
+                                self._subprocs.append(p1)
+
+                        if secondary_path and isinstance(second_device, str):
+                            try:
+                                self._set_alsa_volume_for_device(
+                                    second_device, (self.surround_left_volume, self.surround_right_volume)
+                                )
+                            except Exception:
+                                pass
+                            p2 = start_single_playback(secondary_path, second_device)
+                            if p2:
+                                self._subprocs.append(p2)
+
+                # Wait a bit before checking again
+                time_module.sleep(1)
+
+        self._playing = True
+        self._playback_thread = threading.Thread(target=_playback_loop, daemon=True)
+        self._playback_thread.start()
 
         # Start loop mask timer if enabled
-        if self._playing and main_device:
+        if main_device:
             self._start_loop_mask_timer(primary_path, main_device)
 
-    def _start_pygame_playback(self):
+    def _start_pygame_playback(self):  # noqa: C901
         """Start pygame-based playback for single default output."""
         # Get EQ-processed paths (or originals if no EQ)
         primary_path, secondary_path = self._get_playback_paths()
 
-        if self.playback_mode == "2ch":
-            # 2ch mode: play sum only (vox=left, sub=right)
-            pygame.mixer.music.load(primary_path)
-            pygame.mixer.music.set_volume((self.vox_volume + self.sub_volume) / 2)
-            pygame.mixer.music.play(loops=-1)
-            self._playing = True
-        else:
-            # 4ch mode: play vox_sub as main, instruments as second
-            pygame.mixer.music.load(primary_path)
-            pygame.mixer.music.set_volume((self.vox_volume + self.sub_volume) / 2)
-            pygame.mixer.music.play(loops=-1)
-            self._playing = True
+        # Get track duration for schedule-aware looping
+        track_duration = self._get_wav_duration(primary_path)
+        self._main_track_duration = track_duration
 
-            # Play second track if provided (same output in pygame - no multi-device support)
+        def _pygame_loop():
+            """Monitor playback and restart if enough time remains in schedule."""
+            import time as time_module
+
+            while self._playing:
+                # Check if we should start/restart playback
+                remaining = self._seconds_until_window_end()
+
+                # If no schedule or infinite (always on), or enough time for another loop
+                should_play = (
+                    remaining is None  # No schedule - always play
+                    or remaining == float("inf")  # Always-on schedule
+                    or (track_duration and remaining >= track_duration)  # Enough time for full loop
+                )
+
+                if not should_play:
+                    # Not enough time for another full loop - stop gracefully
+                    print(f"Stopping playback: {remaining:.0f}s remaining, track is {track_duration:.0f}s")
+                    self._playing = False
+                    pygame.mixer.music.stop()
+                    if self._pygame_channel2:
+                        try:
+                            self._pygame_channel2.stop()
+                        except Exception:
+                            pass
+                    break
+
+                # Check if music is still playing
+                if not pygame.mixer.music.get_busy():
+                    # Restart playback
+                    if self.playback_mode == "2ch":
+                        pygame.mixer.music.load(primary_path)
+                        pygame.mixer.music.set_volume((self.vox_volume + self.sub_volume) / 2)
+                        pygame.mixer.music.play(loops=0)  # Play once
+                    else:
+                        pygame.mixer.music.load(primary_path)
+                        pygame.mixer.music.set_volume((self.vox_volume + self.sub_volume) / 2)
+                        pygame.mixer.music.play(loops=0)  # Play once
+
+                        if secondary_path:
+                            sound2 = pygame.mixer.Sound(secondary_path)
+                            channel2 = pygame.mixer.Channel(1)
+                            avg_vol = (self.surround_left_volume + self.surround_right_volume) / 2
+                            channel2.set_volume(avg_vol)
+                            channel2.play(sound2, loops=0)  # Play once
+                            self._pygame_channel2 = channel2
+
+                time_module.sleep(1)
+
+        # Start initial playback
+        if self.playback_mode == "2ch":
+            pygame.mixer.music.load(primary_path)
+            pygame.mixer.music.set_volume((self.vox_volume + self.sub_volume) / 2)
+            pygame.mixer.music.play(loops=0)  # Play once, monitor thread handles restart
+        else:
+            pygame.mixer.music.load(primary_path)
+            pygame.mixer.music.set_volume((self.vox_volume + self.sub_volume) / 2)
+            pygame.mixer.music.play(loops=0)
+
             if secondary_path:
                 sound2 = pygame.mixer.Sound(secondary_path)
                 channel2 = pygame.mixer.Channel(1)
                 avg_vol = (self.surround_left_volume + self.surround_right_volume) / 2
                 channel2.set_volume(avg_vol)
-                channel2.play(sound2, loops=-1)
+                channel2.play(sound2, loops=0)
                 self._pygame_channel2 = channel2
+
+        self._playing = True
+        self._playback_thread = threading.Thread(target=_pygame_loop, daemon=True)
+        self._playback_thread.start()
 
     def play_loop(self, source: str = "manual"):
         """
@@ -755,29 +905,22 @@ class MP3Player:
 
         self._playback_source = None
         self._manual_play_window_id = None
+
+        # Set _playing = False first to stop the playback loop thread
+        self._playing = False
+
         if self._use_subprocess:
-            # terminate subprocesses started for ALSA playback
+            # Terminate aplay subprocesses
             for p in getattr(self, "_subprocs", []):
                 try:
-                    # We spawn playback via /bin/sh -c "while true; do aplay ...; done".
-                    # Terminating only the shell can leave the child `aplay` running.
-                    # Kill the whole process group instead.
-                    try:
-                        os.killpg(os.getpgid(p.pid), signal.SIGTERM)
-                    except Exception:
-                        p.terminate()
-
+                    p.terminate()
                     p.wait(timeout=2)
                 except Exception:
                     try:
-                        try:
-                            os.killpg(os.getpgid(p.pid), signal.SIGKILL)
-                        except Exception:
-                            p.kill()
+                        p.kill()
                     except Exception:
                         pass
             self._subprocs = []
-            self._playing = False
 
             # Stop loop mask timer and any playing loop mask
             self._loop_timer_thread = None
