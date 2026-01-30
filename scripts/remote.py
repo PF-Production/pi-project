@@ -44,6 +44,7 @@ def handle_command_loop(sock):
                     "  eq <track> <band> freq|gain|width <val> - Set EQ param\n"
                     "  eq apply            - Apply EQ changes\n"
                     "  save                - Save settings to .env.local\n"
+                    "  refresh             - Download fresh audio files (removes old files)\n"
                     "  reboot              - Reboot the Raspberry Pi"
                 )
                 continue
