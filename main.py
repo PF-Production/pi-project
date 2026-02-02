@@ -400,6 +400,59 @@ class RemoteControl:
         except Exception as e:
             return f"error: loop command failed: {e}"
 
+    def _handle_refresh(self, parts):
+        """Download fresh audio files (removes old files)."""
+        try:
+            import shutil
+            from pathlib import Path
+            from urllib.request import urlopen
+
+            files_dir = Path("./files")
+
+            # Stop playback first
+            was_playing = self.player.is_playing()
+            if was_playing:
+                self.player.stop()
+
+            # Remove existing files
+            if files_dir.exists():
+                for f in files_dir.glob("*.wav"):
+                    f.unlink()
+
+            # File mappings
+            file_mappings = {
+                "WAV_SUM_URL": "files/sum.wav",
+                "WAV_INSTRUMENTS_URL": "files/instruments.wav",
+                "WAV_VOX_SUB_URL": "files/vox_sub.wav",
+                "LOOP_TRACK_URL": "files/loop.wav",
+            }
+
+            files_dir.mkdir(parents=True, exist_ok=True)
+            downloaded = 0
+
+            for env_var, filepath in file_mappings.items():
+                url = os.getenv(env_var)
+                if not url:
+                    continue
+                try:
+                    with urlopen(url) as response:
+                        with open(filepath, "wb") as f:
+                            shutil.copyfileobj(response, f)
+                    downloaded += 1
+                except Exception as e:
+                    print(f"Failed to download {filepath}: {e}")
+
+            if downloaded == 0:
+                return "error: no files downloaded (check URLs in .env.local)"
+
+            # Restart playback if it was playing
+            if was_playing:
+                self.player.play_loop()
+
+            return f"ok: downloaded {downloaded} files"
+        except Exception as e:
+            return f"error: refresh failed: {e}"
+
     def _process_command(self, command):
         parts = command.split()
         if not parts:
@@ -421,6 +474,7 @@ class RemoteControl:
             "time": self._handle_time,
             "loop": self._handle_loop,
             "reboot": self._handle_reboot,
+            "refresh": self._handle_refresh,
         }
 
         handler = handlers.get(cmd)

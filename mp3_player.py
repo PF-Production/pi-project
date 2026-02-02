@@ -88,6 +88,7 @@ class MP3Player:
         self._loop_timer_thread = None
         self._loop_proc = None  # Subprocess for loop mask playback
         self._main_track_duration = None  # Duration of main track in seconds
+        self._loop_start_time = None  # Timestamp when current loop iteration started
 
         # EQ processors for each channel
         # vox_eq: left channel EQ (vox/mono) - used in both 2ch and 4ch modes
@@ -435,10 +436,12 @@ class MP3Player:
     def _start_loop_mask_timer(self, main_track_path, device):
         """Start a timer thread that triggers the loop mask at the right time."""
         if not self.loop_path or not os.path.exists(self.loop_path):
+            print("Loop mask timer: no loop file found, skipping")
             return  # No loop mask file
 
         duration = self._get_wav_duration(main_track_path)
         if duration is None:
+            print("Loop mask timer: could not get main track duration")
             return
 
         self._main_track_duration = duration
@@ -449,18 +452,34 @@ class MP3Player:
         # Calculate when to trigger (relative to loop start)
         trigger_time = max(0, duration - self.loop_lead_time)
 
+        print(
+            f"Loop mask timer started: track={duration:.1f}s, trigger at {trigger_time:.1f}s (lead={self.loop_lead_time}s)"
+        )
+
         def _loop_timer():
             """Timer thread that triggers loop mask playback."""
             import time as time_module
 
-            loop_start = time_module.time()
+            last_triggered_loop_start = None
 
             while self._playing:
+                # Wait for playback to actually start
+                if self._loop_start_time is None:
+                    time_module.sleep(0.5)
+                    continue
+
+                loop_start = self._loop_start_time
                 elapsed = time_module.time() - loop_start
-                time_in_loop = elapsed % duration
 
                 # Check if we should trigger the loop mask
-                if time_in_loop >= trigger_time and time_in_loop < trigger_time + 1:
+                if elapsed >= trigger_time and elapsed < trigger_time + 1:
+                    # Avoid re-triggering for the same loop iteration
+                    if last_triggered_loop_start == loop_start:
+                        time_module.sleep(0.5)
+                        continue
+
+                    last_triggered_loop_start = loop_start
+
                     # Check if there's enough time remaining in the schedule
                     remaining = self._seconds_until_window_end()
 
@@ -475,10 +494,6 @@ class MP3Player:
                     if should_play_mask:
                         self._play_loop_mask(device)
 
-                    # Wait until next loop cycle
-                    time_module.sleep(self.loop_lead_time + 2)
-                    continue
-
                 time_module.sleep(0.5)
 
         self._loop_timer_thread = threading.Thread(target=_loop_timer, daemon=True)
@@ -488,6 +503,8 @@ class MP3Player:
         """Play the loop mask track once."""
         if not self.loop_path or not os.path.exists(self.loop_path):
             return
+
+        print(f"Playing loop mask (device={device}, volume={self.loop_volume})")
 
         if self._use_subprocess and device:
             try:
@@ -749,7 +766,8 @@ class MP3Player:
                 procs_running = all(p.poll() is None for p in self._subprocs if p)
 
                 if not procs_running or not self._subprocs:
-                    # (Re)start playback
+                    # (Re)start playback - record the loop start time
+                    self._loop_start_time = time_module.time()
                     self._subprocs = []
 
                     if self.playback_mode == "2ch":
@@ -832,7 +850,8 @@ class MP3Player:
 
                 # Check if music is still playing
                 if not pygame.mixer.music.get_busy():
-                    # Restart playback
+                    # Restart playback - record the loop start time
+                    self._loop_start_time = time_module.time()
                     if self.playback_mode == "2ch":
                         pygame.mixer.music.load(primary_path)
                         pygame.mixer.music.set_volume((self.vox_volume + self.sub_volume) / 2)
@@ -853,6 +872,10 @@ class MP3Player:
                 time_module.sleep(1)
 
         # Start initial playback
+        import time as time_module
+
+        self._loop_start_time = time_module.time()
+
         if self.playback_mode == "2ch":
             pygame.mixer.music.load(primary_path)
             pygame.mixer.music.set_volume((self.vox_volume + self.sub_volume) / 2)
@@ -873,6 +896,9 @@ class MP3Player:
         self._playing = True
         self._playback_thread = threading.Thread(target=_pygame_loop, daemon=True)
         self._playback_thread.start()
+
+        # Start loop mask timer if enabled (pygame uses None for device)
+        self._start_loop_mask_timer(primary_path, None)
 
     def play_loop(self, source: str = "manual"):
         """
@@ -924,6 +950,7 @@ class MP3Player:
 
             # Stop loop mask timer and any playing loop mask
             self._loop_timer_thread = None
+            self._loop_start_time = None
             if self._loop_proc:
                 try:
                     self._loop_proc.terminate()
