@@ -9,11 +9,49 @@ from datetime import datetime
 from pathlib import Path
 
 
-def get_alsa_devices():
-    """Get available ALSA audio devices with stable names.
+def get_usb_port_for_card(card_num):
+    """Get the USB port path for a sound card.
 
-    Returns devices using 'plughw:CARD=<name>' format which is stable across reboots,
-    unlike 'hw:X,Y' format where card numbers can change.
+    This returns a stable identifier based on the physical USB port,
+    which doesn't change even when identical devices swap detection order.
+
+    Returns something like 'usb-0000:01:00.0-1.2' or None if not a USB device.
+    """
+    try:
+        # The device path symlink reveals the USB topology
+        device_path = Path(f"/sys/class/sound/card{card_num}/device")
+        if device_path.exists():
+            # Resolve the symlink to get the full path
+            real_path = device_path.resolve()
+            # Extract USB port info from path like:
+            # /sys/devices/platform/soc/3f980000.usb/usb1/1-1/1-1.2/1-1.2:1.0/sound/card1
+            path_str = str(real_path)
+            if "/usb" in path_str:
+                # Find the USB port portion (e.g., "1-1.2" from the path)
+                parts = path_str.split("/")
+                for i, part in enumerate(parts):
+                    if part.startswith("usb"):
+                        # The next parts contain the port topology
+                        # e.g., usb1/1-1/1-1.2/1-1.2:1.0
+                        usb_parts = []
+                        for j in range(i, len(parts)):
+                            if parts[j] == "sound":
+                                break
+                            usb_parts.append(parts[j])
+                        if usb_parts:
+                            return "/".join(usb_parts)
+    except Exception:
+        pass
+    return None
+
+
+def get_alsa_devices():
+    """Get available ALSA audio devices with USB port paths for stable identification.
+
+    For USB devices, returns the USB port path which is stable across reboots
+    even for identical devices. Falls back to card name for non-USB devices.
+
+    Returns dict: {device_id: (description, usb_port_or_none, card_name)}
     """
     devices = {}
     try:
@@ -40,13 +78,25 @@ def get_alsa_devices():
                         else:
                             card_name = card_info.split(",")[0].strip()
 
-                        # Use plughw:CARD=<name> for stable device identification
-                        # This survives reboots unlike hw:X,Y which can change
-                        stable_id = f"plughw:CARD={card_name},DEV=0"
                         description = ":".join(parts[1:]).strip()
 
-                        # Also store the numeric ID for reference
-                        devices[stable_id] = f"{description} (hw:{card_num},0)"
+                        # Get USB port path for stable identification
+                        usb_port = get_usb_port_for_card(card_num)
+
+                        if usb_port:
+                            # For USB devices, use port path as the stable ID
+                            # This survives identical devices swapping detection order
+                            stable_id = f"usbport:{usb_port}"
+                            port_display = usb_port.split("/")[-1] if "/" in usb_port else usb_port
+                            devices[stable_id] = (
+                                f"{description} [USB port: {port_display}]",
+                                usb_port,
+                                card_name,
+                            )
+                        else:
+                            # For non-USB devices, use card name (original behavior)
+                            stable_id = f"plughw:CARD={card_name},DEV=0"
+                            devices[stable_id] = (description, None, card_name)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
@@ -164,7 +214,11 @@ def get_time_input(prompt, default=None):
 
 
 def select_device(devices, device_name, current_device=None):
-    """Prompt user to select a device from available options."""
+    """Prompt user to select a device from available options.
+
+    For USB devices identified by port path, the device_id will be like 'usbport:usb1/1-1.2'.
+    For non-USB devices, device_id is the traditional 'plughw:CARD=...' format.
+    """
     if not devices:
         print(f"\n✗ No audio devices found for {device_name} device")
         custom = input("Enter custom device string (or press Enter to skip): ").strip()
@@ -172,9 +226,17 @@ def select_device(devices, device_name, current_device=None):
 
     print(f"\nAvailable devices for {device_name}:")
     sorted_devices = sorted(devices.items())
-    for i, (device_id, name) in enumerate(sorted_devices, 1):
+    for i, (device_id, info) in enumerate(sorted_devices, 1):
+        # info can be a tuple (description, usb_port, card_name) for ALSA devices
+        # or a string for PulseAudio/CoreAudio devices
+        if isinstance(info, tuple):
+            description = info[0]
+        else:
+            description = info
         marker = " ← current" if device_id == current_device else ""
-        print(f"  {i}. {device_id:15} - {name}{marker}")
+        # Truncate device_id for display if it's long
+        display_id = device_id[:40] + "..." if len(device_id) > 43 else device_id
+        print(f"  {i}. {display_id:45} - {description}{marker}")
 
     print(f"  {len(sorted_devices) + 1}. Enter custom device string")
     print(f"  {len(sorted_devices) + 2}. Skip {device_name} device")
@@ -187,7 +249,9 @@ def select_device(devices, device_name, current_device=None):
             if 1 <= choice_num <= len(sorted_devices):
                 return sorted_devices[choice_num - 1][0]
             elif choice_num == len(sorted_devices) + 1:
-                custom = input("Enter device string (e.g., plughw:CARD=Headphones,DEV=0): ").strip()
+                custom = input(
+                    "Enter device string (e.g., plughw:CARD=Headphones,DEV=0 or usbport:usb1/1-1.2): "
+                ).strip()
                 return custom if custom else None
             elif choice_num == len(sorted_devices) + 2:
                 return None

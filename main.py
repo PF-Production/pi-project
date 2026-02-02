@@ -4,6 +4,7 @@ import socket
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -439,19 +440,93 @@ def _parse_schedule_time(label, value):
         return None
 
 
+def _resolve_usb_port_to_device(usb_port_id):  # noqa
+    """Resolve a USB port identifier to the current ALSA device name.
+
+    USB port paths are stable across reboots even for identical devices,
+    as they identify the physical port rather than the device.
+
+    Args:
+        usb_port_id: String like 'usbport:usb1/1-1.2' or 'usbport:usb1/1-1.2/1-1.2:1.0'
+
+    Returns:
+        ALSA device string like 'plughw:CARD=PRO,DEV=0' or None if not found
+    """
+    if not usb_port_id.startswith("usbport:"):
+        # Not a USB port identifier, return as-is (legacy format)
+        return usb_port_id
+
+    target_port = usb_port_id[8:]  # Remove 'usbport:' prefix
+
+    try:
+        # List all sound cards and find which one matches this USB port
+        cards_path = Path("/proc/asound/cards")
+        if not cards_path.exists():
+            print(f"Warning: /proc/asound/cards not found, cannot resolve {usb_port_id}")
+            return None
+
+        # Parse /proc/asound/cards to get card numbers and names
+        # Format: " 0 [Headphones      ]: bcm2835_headpho - bcm2835 Headphones"
+        cards = {}
+        with open(cards_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and line[0].isdigit():
+                    parts = line.split("[")
+                    if len(parts) >= 2:
+                        card_num = parts[0].strip().split()[0]
+                        card_name = parts[1].split("]")[0].strip()
+                        cards[card_num] = card_name
+
+        # Check each card to see if it matches the target USB port
+        for card_num, card_name in cards.items():
+            device_path = Path(f"/sys/class/sound/card{card_num}/device")
+            if device_path.exists():
+                try:
+                    real_path = str(device_path.resolve())
+                    # Check if the target USB port appears in the device path
+                    # The port path like "1-1.2" should appear in the resolved path
+                    if target_port in real_path or any(
+                        part in real_path for part in target_port.split("/") if part and not part.startswith("usb")
+                    ):
+                        device_str = f"plughw:CARD={card_name},DEV=0"
+                        print(f"Resolved {usb_port_id} → {device_str}")
+                        return device_str
+                except Exception:
+                    continue
+
+        print(f"Warning: Could not resolve USB port {usb_port_id} to any current device")
+        return None
+
+    except Exception as e:
+        print(f"Warning: Error resolving USB port {usb_port_id}: {e}")
+        return None
+
+
+def _resolve_device(device_str):
+    """Resolve a device string, handling USB port identifiers.
+
+    If the device is a USB port identifier (usbport:...), resolve it to
+    the current ALSA device name. Otherwise return as-is.
+    """
+    if device_str and device_str.startswith("usbport:"):
+        return _resolve_usb_port_to_device(device_str)
+    return device_str
+
+
 def _get_audio_device(args):
     if args.device1 and args.device2:
-        return (args.device1, args.device2)
+        return (_resolve_device(args.device1), _resolve_device(args.device2))
     elif args.device1:
-        return args.device1
+        return _resolve_device(args.device1)
 
     # allow overriding via env vars for systemd or uv run usage
     env1 = os.environ.get("AUDIO_DEVICE_1")
     env2 = os.environ.get("AUDIO_DEVICE_2")
     if env1 and env2:
-        return (env1, env2)
+        return (_resolve_device(env1), _resolve_device(env2))
     elif env1:
-        return env1
+        return _resolve_device(env1)
     return None
 
 

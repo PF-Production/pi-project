@@ -15,15 +15,42 @@ from dotenv import load_dotenv
 load_dotenv(".env.local")
 
 
-def get_alsa_devices():
-    """Get available ALSA audio devices with stable names.
+def get_usb_port_for_card(card_num):
+    """Get the USB port path for a sound card.
 
-    Returns devices using 'plughw:CARD=<name>' format which is stable across reboots,
-    unlike 'hw:X,Y' format where card numbers can change.
+    This returns a stable identifier based on the physical USB port,
+    which doesn't change even when identical devices swap detection order.
+
+    Returns something like 'usb1/1-1.2' or None if not a USB device.
+    """
+    try:
+        device_path = Path(f"/sys/class/sound/card{card_num}/device")
+        if device_path.exists():
+            real_path = device_path.resolve()
+            path_str = str(real_path)
+            if "/usb" in path_str:
+                parts = path_str.split("/")
+                for i, part in enumerate(parts):
+                    if part.startswith("usb"):
+                        usb_parts = []
+                        for j in range(i, len(parts)):
+                            if parts[j] == "sound":
+                                break
+                            usb_parts.append(parts[j])
+                        if usb_parts:
+                            return "/".join(usb_parts)
+    except Exception:
+        pass
+    return None
+
+
+def get_alsa_devices():
+    """Get available ALSA audio devices with USB port paths for stable identification.
+
+    For USB devices, includes the USB port path which is stable across reboots.
     """
     devices = {}
     try:
-        # Use aplay to list devices
         result = subprocess.run(
             ["aplay", "-l"],
             capture_output=True,
@@ -33,24 +60,39 @@ def get_alsa_devices():
         if result.returncode == 0:
             for line in result.stdout.split("\n"):
                 if line.startswith("card"):
-                    # Parse lines like:
-                    # "card 0: Headphones [bcm2835 Headphones], device 0: bcm2835 Headphones [bcm2835 Headphones]"
-                    # "card 1: Device [USB Audio Device], device 0: USB Audio [USB Audio]"
                     parts = line.split(":")
                     if len(parts) >= 2:
                         card_num = parts[0].split()[1]
-                        # Extract card name from the bracket after colon
                         card_info = parts[1].strip()
                         if " [" in card_info:
                             card_name = card_info.split(" [")[0].strip()
                         else:
                             card_name = card_info.split(",")[0].strip()
 
-                        # Use plughw:CARD=<name> for stable device identification
-                        stable_id = f"plughw:CARD={card_name},DEV=0"
                         description = ":".join(parts[1:]).strip()
 
-                        devices[stable_id] = f"{description} (hw:{card_num},0)"
+                        # Get USB port path for stable identification
+                        usb_port = get_usb_port_for_card(card_num)
+
+                        if usb_port:
+                            stable_id = f"usbport:{usb_port}"
+                            port_display = usb_port.split("/")[-1] if "/" in usb_port else usb_port
+                            devices[stable_id] = {
+                                "description": description,
+                                "card_name": card_name,
+                                "card_num": card_num,
+                                "usb_port": usb_port,
+                                "port_display": port_display,
+                            }
+                        else:
+                            stable_id = f"plughw:CARD={card_name},DEV=0"
+                            devices[stable_id] = {
+                                "description": description,
+                                "card_name": card_name,
+                                "card_num": card_num,
+                                "usb_port": None,
+                                "port_display": None,
+                            }
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
@@ -213,12 +255,30 @@ def print_coreaudio_devices_section():
 
 
 def print_alsa_devices_section():
-    """Print ALSA devices for Linux."""
+    """Print ALSA devices for Linux with USB port information."""
     devices = get_alsa_devices()
     if devices:
         print("\nALSA Devices (Linux):")
-        for device_id, name in sorted(devices.items()):
-            print(f"  {device_id:15} - {name}")
+        print("  Note: USB port identifiers are stable across reboots, even for identical devices.\n")
+        for device_id, info in sorted(devices.items()):
+            if isinstance(info, dict):
+                desc = info.get("description", "Unknown")
+                card_name = info.get("card_name", "?")
+                card_num = info.get("card_num", "?")
+                usb_port = info.get("usb_port")
+                if usb_port:
+                    port_short = usb_port.split("/")[-1] if "/" in usb_port else usb_port
+                    print(f"  hw:{card_num} (CARD={card_name})")
+                    print(f"      └─ USB port: {port_short}")
+                    print(f"      └─ Stable ID: {device_id}")
+                    print(f"      └─ {desc}")
+                else:
+                    print(f"  hw:{card_num} (CARD={card_name})")
+                    print(f"      └─ {desc}")
+                print()
+            else:
+                # Legacy format (string)
+                print(f"  {device_id:45} - {info}")
     else:
         print("\n⊘ No ALSA devices found (expected on non-Linux systems)")
     return devices
